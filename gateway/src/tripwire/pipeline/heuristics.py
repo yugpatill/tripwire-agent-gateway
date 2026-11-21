@@ -228,6 +228,15 @@ HIDDEN_KINDS: Final = frozenset(
     {"base64", "url", "tags", "html_comment", "html_entities", "json_escapes"}
 )
 HIDDEN_BOOST: Final = 0.3
+# Signals combine only when they co-occur: weak hits further apart than this (in
+# characters) do not add up, so a long benign page with one stray phrase in each
+# section is not flagged. Document-wide signals (invisible-character counts)
+# apply to every neighbourhood.
+LOCAL_RADIUS: Final = 500
+# Rules weaker than this are modifiers ("send ... to x@", "System:" lines): common
+# in benign text, so they only raise a neighbourhood that already has a real
+# signal and never combine only among themselves.
+MODIFIER_MAX: Final = 0.4
 
 
 @dataclass(slots=True)
@@ -254,10 +263,43 @@ def _markdown_exfil(text: str) -> list[tuple[float, tuple[int, int], str]]:
     return found
 
 
+def _combine(weights: dict[str, float]) -> float:
+    if not weights:
+        return 0.0
+    if max(weights.values()) < MODIFIER_MAX:
+        return max(weights.values())
+    keep = 1.0
+    for w in weights.values():
+        keep *= 1.0 - w
+    return 1.0 - keep
+
+
+def _local_score(occurrences: list[tuple[str, float, tuple[int, int]]], text_len: int) -> float:
+    """Max over neighbourhoods of the combined score of distinct rules hit there."""
+    global_hits: dict[str, float] = {}
+    local: list[tuple[str, float, int]] = []
+    for rule_id, w, (s, e) in occurrences:
+        if s == 0 and e == text_len:
+            global_hits[rule_id] = max(global_hits.get(rule_id, 0.0), w)
+        else:
+            local.append((rule_id, w, s))
+    best = _combine(global_hits)
+    local.sort(key=lambda x: x[2])
+    for _, _, center in local:
+        near = dict(global_hits)
+        for rule_id, w, pos in local:
+            if abs(pos - center) <= LOCAL_RADIUS:
+                near[rule_id] = max(near.get(rule_id, 0.0), w)
+        best = max(best, _combine(near))
+    return best
+
+
 def score_text(text: str) -> DetectorResult:
     hits: dict[str, _Hit] = {}
+    occurrences: list[tuple[str, float, tuple[int, int]]] = []
 
     def hit(rule_id: str, weight: float, span: tuple[int, int], where: str) -> None:
+        occurrences.append((rule_id, weight, span))
         h = hits.setdefault(rule_id, _Hit(0.0))
         h.weight = max(h.weight, weight)
         if span not in h.spans:
@@ -283,10 +325,7 @@ def score_text(text: str) -> DetectorResult:
     for weight, span, why in _markdown_exfil(text):
         hit("markdown-image-exfil", weight, span, why)
 
-    keep = 1.0
-    for h in hits.values():
-        keep *= 1.0 - h.weight
-    score = round(1.0 - keep, 4)
+    score = round(_local_score(occurrences, len(text)), 4)
     spans = sorted({s for h in hits.values() for s in h.spans})
     reason = ", ".join(
         f"{rid}({h.weight:.2f}{'@' + '/'.join(sorted(h.where - {'normalized'})) if h.where - {'normalized'} else ''})"

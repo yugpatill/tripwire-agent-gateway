@@ -30,7 +30,11 @@ FIX = Path(__file__).resolve().parents[1] / "tests" / "fixtures"
 
 def corpus_text(size: int, injected: bool = False) -> str:
     parts: list[str] = []
+    # Realistic tool output (not the hard-negative or LLM-docs categories, which are
+    # deliberately dense in weak signals and would trip the heuristics early exit).
     for f in sorted((FIX / "benign").glob("*.jsonl")):
+        if f.stem not in ("web_pages", "emails", "api_json", "support_tickets"):
+            continue
         for line in f.read_text(encoding="utf-8").splitlines():
             r = json.loads(line)
             parts.append(r["text"] if "text" in r else content_text(r["content"]))

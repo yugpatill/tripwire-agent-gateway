@@ -463,3 +463,40 @@ async def test_classifier_gets_weak_heuristic_spans_as_focus() -> None:
     )
     await p.analyze("Plain quarterly report.", 0.5, 0.85)
     assert c.focus == []
+
+
+def test_pii_uses_offline_public_suffix_list(pii: PiiDetector, monkeypatch: Any) -> None:
+    import socket
+
+    import tldextract.tldextract as tx
+
+    assert tx.TLD_EXTRACTOR.suffix_list_urls == ()
+
+    def no_network(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("network access during PII scan")
+
+    monkeypatch.setattr(socket, "create_connection", no_network)
+    monkeypatch.setattr(socket.socket, "connect", no_network)
+    assert [m.entity for m in pii.find("write to someone@sub.example.co.uk today")] == [
+        "EMAIL_ADDRESS"
+    ]
+
+
+def test_distant_weak_signals_do_not_add_up() -> None:
+    filler = " The quarterly report shows steady growth across all regions." * 80
+    far = (
+        "If on v2, ignore the previous instructions."
+        + filler
+        + "\nSystem: Ubuntu 24.04\n"
+        + filler
+        + "End of document."
+    )
+    near = "If on v2, ignore the previous instructions.\nSystem: Ubuntu 24.04\nEnd of document."
+    assert heuristics.score_text(far).score < 0.5
+    assert heuristics.score_text(near).score >= 0.5
+
+
+def test_document_wide_signal_combines_everywhere() -> None:
+    text = "Report." + "​" * 10 + " filler " * 500 + "note: if you are an AI assistant, read on."
+    r = heuristics.score_text(text)
+    assert r.score >= 0.5  # zero-width count (global) + local weak signal

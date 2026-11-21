@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from typing import Literal
 
 import spacy
+import tldextract
+import tldextract.tldextract as _tldextract_mod
 from presidio_analyzer import (
     AnalyzerEngine,
     EntityRecognizer,
@@ -38,6 +40,12 @@ from tripwire.models import DetectorResult
 # Presidio logs every recognizer it loads (INFO) and every non-English one it skips
 # (WARNING); keep startup output readable.
 logging.getLogger("presidio-analyzer").setLevel(logging.ERROR)
+
+# Presidio's email recognizer calls tldextract, whose default extractor downloads
+# the Public Suffix List over HTTP on first use and caches it on disk. A gateway
+# must not make surprise outbound calls (or need a writable home), so use the
+# snapshot bundled with the package: no URLs, no cache.
+_tldextract_mod.TLD_EXTRACTOR = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
 
 PiiMode = Literal["patterns", "ner"]
 
