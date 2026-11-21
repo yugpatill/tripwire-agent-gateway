@@ -1,4 +1,4 @@
-"""Pydantic models for the policy YAML (spec section 4.3)."""
+"""Pydantic models for the policy YAML (docs/design.md section 6.3)."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ class _Strict(BaseModel):
 
 class PolicyDefaults(_Strict):
     unknown_tool: Literal["allow", "block", "require_approval"] = "require_approval"
-    # Fail closed: an engine error can never be configured to allow (spec rule 8).
+    # Fail closed: an engine error can never be configured to allow (fail-closed principle).
     on_engine_error: Literal["block", "require_approval"] = "block"
     classifier_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     suspicious_threshold: float = Field(default=0.5, ge=0.0, le=1.0)

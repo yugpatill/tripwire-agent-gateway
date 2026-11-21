@@ -1,6 +1,6 @@
 # Policy condition test coverage
 
-Maps every condition in the policy schema (spec section 4.3) to the tests that exercise it. `test_policy_coverage_table.py` fails CI if a schema condition has no row here or if a listed test no longer exists.
+Maps every condition in the policy schema ([design.md](design.md) section 6.3) to the tests that exercise it. `test_policy_coverage_table.py` fails CI if a schema condition has no row here or if a listed test no longer exists.
 
 Files: `E` = `tests/unit/test_policy_eval.py` (rule evaluator, synthetic facts), `G` = `tests/unit/test_engine.py` (full engine with the demo policy), `T` = `tests/unit/test_taint_evasion.py`, `I` = `tests/integration/test_api_live.py` (HTTP + Postgres + Redis).
 

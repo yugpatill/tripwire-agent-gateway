@@ -1,4 +1,4 @@
-"""Core request/response contracts (spec section 4.1)."""
+"""Core request/response contracts (docs/design.md section 6.1)."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ Confidentiality = ConfidentialityT
 Action = Literal["allow", "block", "redact", "require_approval", "log_only"]
 Mode = Literal["enforce", "shadow"]
 
-# Ordering used for comparisons (spec 4.1).
+# Ordering used for comparisons (docs/design.md section 6.1).
 TRUST_ORDER: Final[dict[str, int]] = {
     "trusted": 0,
     "untrusted": 1,

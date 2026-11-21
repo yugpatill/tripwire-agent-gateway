@@ -1,6 +1,6 @@
 # Limitations
 
-What Tripwire cannot stop, stated plainly. Every item here is either covered by an `xfail` test (so CI notices if it changes) or is a design boundary. This file is extended in each phase. Spec section 8 requires the final version to cover paraphrased exfiltration, attacks within trusted tools, and model-level jailbreaks.
+What Tripwire cannot stop, stated plainly. Every item here is either covered by an `xfail` test (so CI notices if it changes) or is a design boundary. This file is extended in each phase. The design's definition of done ([design.md](design.md) section 10) requires the final version to cover paraphrased exfiltration, attacks within trusted tools, and model-level jailbreaks.
 
 ## Taint tracking (Phase 2)
 

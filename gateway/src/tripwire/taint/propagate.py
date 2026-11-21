@@ -1,6 +1,6 @@
 """Label tool-call arguments with the provenance of the data they carry.
 
-Three mechanisms (spec section 1.3):
+Three mechanisms (docs/design.md section 1):
 
 1. **Value matching**: an argument (or part of it) equals or contains a value seen
    earlier in the session; matched exactly, after normalization, or by entity

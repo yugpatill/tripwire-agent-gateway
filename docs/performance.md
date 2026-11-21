@@ -1,6 +1,6 @@
 # Performance
 
-Budgets (spec rule 10): decision pipeline **< 30 ms p95** without the classifier, **< 80 ms p95** with it, on CPU.
+Budgets ([design.md](design.md) section 3): decision pipeline **< 30 ms p95** without the classifier, **< 80 ms p95** with it, on CPU.
 
 ## Scaling benchmark: `/v1/check/call` with a heavy session
 
