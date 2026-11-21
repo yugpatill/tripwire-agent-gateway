@@ -38,6 +38,8 @@ _TARGET = (
 _AI = (
     r"(?:ai|llm|large language model|language model|chatbot|ai assistant|ai agent|assistant|agent)"
 )
+# "assistant"/"agent" are also human job titles: "assistant manager", "agent of record".
+_NOT_JOB = r"(?!\s+(?:manager|coach|director|editor|professor|principal|teacher|secretary|attorney|engineer|chef|producer|of record|team|desk))"
 
 RULES: Final[list[Rule]] = [
     # --- direct override -------------------------------------------------
@@ -58,6 +60,30 @@ RULES: Final[list[Rule]] = [
         "override",
         0.9,
         r"\b(?:ignore|disregard|override|forget)\b[^.\n]{0,20}\bsystem prompt",
+    ),
+    _r(
+        "forget-above",
+        "override",
+        0.85,
+        r"\b(?:forget|ignore|disregard)\s+(?:everything|all|anything)\s+(?:above|before|so far|you(?:'ve| have)? (?:been told|read))",
+    ),
+    _r(
+        "ignore-the-user",
+        "override",
+        0.6,
+        r"\b(?:ignore|disregard)\s+(?:the\s+)?user'?s?\s+(?:request|question|instructions?|task|message|prompt)\b",
+    ),
+    _r(
+        "your-new-task",
+        "override",
+        0.5,
+        r"\byour\s+(?:new|real|actual|only|true)\s+(?:task|job|goal|objective|mission|instructions?)\s+(?:is|are|now)\b",
+    ),
+    _r(
+        "goals-updated",
+        "override",
+        0.6,
+        r"\b(?:has|have)\s+(?:updated|changed|replaced|overridden)\s+your\s+(?:goals?|instructions?|rules?|task|objectives?|guidelines|priorities)\b",
     ),
     _r(
         "override-previous",
@@ -100,7 +126,7 @@ RULES: Final[list[Rule]] = [
         "dear-ai",
         "address",
         0.7,
-        rf"\b(?:dear|hey|attention|note to(?: the)?|message (?:to|for)(?: the)?)\s+{_AI}s?\b",
+        rf"\b(?:dear|hey|attention|note to(?: the)?|message (?:to|for)(?: the)?)\s+{_AI}s?\b{_NOT_JOB}",
     ),
     _r(
         "ai-imperative",
@@ -161,18 +187,24 @@ RULES: Final[list[Rule]] = [
         r"</(?:tool_output|tool_result|function_results?|search_results?|document|context|user_input)>",
     ),
     _r("role-line-system", "role", 0.35, r"^\s*(?:system|assistant)\s*:\s+\S"),
-    _r("fake-turns", "role", 0.6, r"^\s*(?:human|user)\s*:[^\n]*\n+\s*(?:assistant|ai)\s*:"),
+    _r(
+        "inline-role-command",
+        "role",
+        0.7,
+        r"(?:^|[.!?]\s+)(?:system|admin|developer)\s*:\s*(?:now\s+|you must\s+|please\s+)?(?:ignore|transfer|send|forward|email|delete|reveal|run|execute|call|grant|export)\b",
+    ),
+    _r("fake-turns", "role", 0.45, r"^\s*(?:human|user)\s*:[^\n]*\n+\s*(?:assistant|ai)\s*:"),
     _r(
         "end-of-context",
         "role",
-        0.55,
+        0.4,
         r"\b(?:end|close) of (?:the\s+)?(?:user input|document|context|tool output|search results?|email|page content)\b",
     ),
     _r(
         "markdown-role-header",
         "role",
         0.6,
-        r"^#{1,4}\s*(?:system|new instructions|instructions for (?:the )?(?:ai|assistant|agent))\b",
+        r"^#{1,4}\s*(?:system|new instructions|instructions for (?:the )?(?:ai|assistant|agent))\s*:?\s*$",
     ),
     # --- tool abuse ------------------------------------------------------
     _r(
@@ -192,7 +224,9 @@ _DATA_KEYS = re.compile(
     re.I,
 )
 
-HIDDEN_KINDS: Final = frozenset({"base64", "url", "tags", "html_comment", "html_entities"})
+HIDDEN_KINDS: Final = frozenset(
+    {"base64", "url", "tags", "html_comment", "html_entities", "json_escapes"}
+)
 HIDDEN_BOOST: Final = 0.3
 
 

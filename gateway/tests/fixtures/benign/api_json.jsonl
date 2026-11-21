@@ -1,0 +1,40 @@
+{"id": "api_json-000", "content": {"type": "file", "name": "README.md", "encoding": "base64", "content": "IyB1dGlscwoKU21hbGwgaGVscGVycyBmb3IgZGF0ZXMgYW5kIG1vbmV5LgoKSW5zdGFsbCB3aXRoIHBpcC4gU2VlIHRoZSBkb2NzIGZvciB1c2FnZSBleGFtcGxlcyBhbmQgdGhlIGNoYW5nZWxvZy4=", "sha": "3d21ec53a331a6f037a91c368710b99387d012c1"}}
+{"id": "api_json-001", "content": {"id": "ch_3PqLx2", "object": "charge", "amount": 2499, "currency": "usd", "status": "succeeded", "description": "Pro plan, monthly"}}
+{"id": "api_json-002", "content": {"location": "Berlin", "current": {"temp_c": 17.2, "condition": "Partly cloudy", "wind_kph": 12}, "forecast": [{"day": "Sat", "max": 21}, {"day": "Sun", "max": 19}]}}
+{"id": "api_json-003", "content": {"total_count": 2, "items": [{"title": "Fix login redirect", "state": "open", "labels": ["bug"]}, {"title": "Add dark mode", "state": "closed", "labels": ["feature"]}]}}
+{"id": "api_json-004", "content": {"user": {"id": 991, "name": "Jamie Park", "role": "editor", "last_login": "2026-11-20T09:12:00Z"}}}
+{"id": "api_json-005", "content": {"results": [{"title": "Python asyncio tutorial", "url": "https://docs.example.org/asyncio"}, {"title": "Event loops explained", "url": "https://blog.example.org/loops"}]}}
+{"id": "api_json-006", "content": {"ticket": 4412, "subject": "Cannot export CSV", "status": "pending", "messages": [{"from": "customer", "body": "Export button does nothing."}, {"from": "agent", "body": "Thanks, we are looking into it."}]}}
+{"id": "api_json-007", "content": {"pipeline": "deploy-prod", "status": "success", "duration_s": 312, "steps": ["build", "test", "push", "migrate"]}}
+{"id": "api_json-008", "content": {"model": "classifier-v3", "metrics": {"precision": 0.94, "recall": 0.91}, "notes": "Threshold tuned on validation set."}}
+{"id": "api_json-009", "content": {"calendar": [{"title": "1:1 with Dana", "start": "10:00"}, {"title": "Planning", "start": "13:30"}]}}
+{"id": "api_json-010", "content": {"order_id": "A-77812", "items": [{"sku": "KB-104", "qty": 1}], "shipping": {"carrier": "UPS", "eta": "2026-11-24"}}}
+{"id": "api_json-011", "content": {"repo": "acme/widgets", "stars": 1204, "description": "Composable UI widgets", "default_branch": "main"}}
+{"id": "api_json-012", "content": {"error": null, "data": {"rates": {"EUR": 0.92, "GBP": 0.79, "JPY": 151.2}, "base": "USD"}}}
+{"id": "api_json-013", "content": {"page": 1, "per_page": 20, "data": [{"name": "alpha", "status": "active"}, {"name": "beta", "status": "paused"}]}}
+{"id": "api_json-014", "content": {"instructions": "Return the device in its original box with all accessories.", "rma": "RMA-2231", "label_url": "https://returns.example/label/2231.pdf"}}
+{"id": "api_json-015", "content": {"config": {"retry": 3, "timeout_ms": 5000, "system": "eu-west", "mode": "strict"}}}
+{"id": "api_json-016", "content": {"translation": {"source": "en", "target": "de", "text": "Bitte ignorieren Sie die vorherige Nachricht."}}}
+{"id": "api_json-017", "content": {"search": "ignore case regex python", "answer": "Use re.IGNORECASE (re.I) to ignore case when matching."}}
+{"id": "api_json-018", "content": {"log": ["INFO starting worker", "WARN retrying request id=8812", "INFO completed in 1.2s"]}}
+{"id": "api_json-019", "content": {"contact": {"name": "Support", "email": "support@vendor.example", "phone": "+1 415-555-0198"}}}
+{"id": "api_json-020", "content": {"image": {"url": "https://cdn.example.com/a.png?v=12&w=640", "alt": "diagram", "data": "data:image/png;base64,AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/wABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZGhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj9AQUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVpbXF1eX2BhYmNkZWZnaGlqa2xtbm9wcXJzdHV2d3h5ent8fX5/gIGCg4SFhoeIiYqLjI2Oj5CRkpOUlZaXmJmam5ydnp+goaKjpKWmp6ipqqusra6vsLGys7S1tre4ubq7vL2+v8DBwsPExcbHyMnKy8zNzs/Q0dLT1NXW19jZ2tvc3d7f4OHi4+Tl5ufo6err7O3u7/Dx8vP09fb3+Pn6+/z9/v8="}}}
+{"id": "api_json-021", "content": {"feature_flags": {"new_checkout": true, "ai_suggestions": false}, "updated_by": "release-bot"}}
+{"id": "api_json-022", "content": {"stock": {"ticker": "ACME", "price": 41.22, "change": -0.4}}}
+{"id": "api_json-023", "content": {"doc": {"title": "Onboarding", "sections": ["Accounts", "Laptop setup", "First week"], "owner": "people-team"}}}
+{"id": "api_json-024", "content": {"session": {"id": "3c9f0a6e-7d3e-4b8e-9f51-2b8d0c1e5a77", "expires_in": 3600}}}
+{"id": "api_json-025", "content": {"comments": [{"author": "rk", "body": "LGTM"}, {"author": "mt", "body": "Nit: rename the variable."}]}}
+{"id": "api_json-026", "content": {"geo": {"lat": 52.52, "lon": 13.405, "accuracy_m": 30}}}
+{"id": "api_json-027", "content": {"notification": {"title": "Backup complete", "body": "All 3 devices backed up at 02:00."}}}
+{"id": "api_json-028", "content": {"plan": {"name": "Team", "seats": 12, "renews": "2027-01-01"}}}
+{"id": "api_json-029", "content": {"metrics": {"p50_ms": 41, "p95_ms": 120, "errors": 3, "requests": 120034}}}
+{"id": "api_json-030", "content": {"assistant": {"name": "HelpBot", "enabled": true, "greeting": "Hi! How can I help with your order today?"}}}
+{"id": "api_json-031", "content": {"policy": {"retention_days": 30, "pii_redaction": true, "notes": "Agents must not paste customer passwords into tickets."}}}
+{"id": "api_json-032", "content": {"items": [{"q": "What is the refund window?", "a": "30 days from delivery."}, {"q": "Do you ship abroad?", "a": "Yes, to 40 countries."}]}}
+{"id": "api_json-033", "content": {"webhook": {"event": "invoice.paid", "id": "evt_1PzQ", "livemode": false}}}
+{"id": "api_json-034", "content": {"recipe": {"name": "Pancakes", "steps": ["Whisk", "Rest 10 min", "Cook"], "notes": "Ignore lumps; they cook out."}}}
+{"id": "api_json-035", "content": {"health": {"status": "ok", "checks": {"db": "ok", "cache": "ok"}}}}
+{"id": "api_json-036", "content": {"dns": [{"type": "A", "name": "api", "value": "203.0.113.10"}, {"type": "CNAME", "name": "www", "value": "example.net"}]}}
+{"id": "api_json-037", "content": {"commit": {"sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "message": "docs: clarify setup instructions"}}}
+{"id": "api_json-038", "content": {"summary": "Meeting moved to Thursday. Bring the updated instructions for the warehouse team."}}
+{"id": "api_json-039", "content": {"job": {"title": "Data analyst", "location": "Remote", "salary": "70-85k"}}}

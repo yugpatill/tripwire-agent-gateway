@@ -1,0 +1,40 @@
+{"id": "emails-000", "text": "From: billing@cloudhost.example\nSubject: Invoice #4471\n\nHi, your invoice for March is attached. Please send payment to accounts@cloudhost.example by April 15."}
+{"id": "emails-001", "text": "From: no-reply@bank.example\nSubject: Password reset\n\nWe received a request to reset your password. If you did not request this, ignore this email. Do not share this code with anyone: 482913."}
+{"id": "emails-002", "text": "From: maria@company.com\nSubject: Re: offsite\n\nPlease ignore my previous email, I attached the wrong agenda. The correct one is attached."}
+{"id": "emails-003", "text": "From: hr@company.com\nSubject: New instructions for expense reports\n\nStarting May 1, submit receipts through the portal. Paper forms will no longer be accepted."}
+{"id": "emails-004", "text": "From: tom@company.com\nSubject: Surprise party\n\nDon't tell Sarah! Party is Friday at 6. Send RSVPs to tom@company.com."}
+{"id": "emails-005", "text": "From: newsletter@devweekly.example\nSubject: This week in AI\n\nAI assistants are getting better at coding. We review three new tools and an LLM evaluation paper."}
+{"id": "emails-006", "text": "From: support@shop.example\nSubject: Your order shipped\n\nTracking number 1Z999AA10123456784. Expected delivery Thursday."}
+{"id": "emails-007", "text": "From: ceo@company.com\nSubject: All hands\n\nThanks everyone for a great quarter. All hands on Friday at 10:00 in the main hall."}
+{"id": "emails-008", "text": "From: it@company.com\nSubject: Laptop refresh\n\nPlease back up your files and forward this email to your manager for approval."}
+{"id": "emails-009", "text": "From: alex@partner.example\nSubject: Contract\n\nAttached is the signed contract. Please countersign and email it back to legal@partner.example."}
+{"id": "emails-010", "text": "From: calendar@company.com\nSubject: Invitation: Design review\n\nWhen: Tue 14:00-15:00. Where: Room 4. Agenda: review the onboarding flow."}
+{"id": "emails-011", "text": "From: dad@family.example\nSubject: Sunday\n\nLunch at noon. Ignore the old address, we moved last month. New one: 12 Elm Street."}
+{"id": "emails-012", "text": "From: recruiter@jobs.example\nSubject: Opportunity\n\nI came across your profile and think you'd be a great fit for a senior engineer role. Open to a chat?"}
+{"id": "emails-013", "text": "From: school@district.example\nSubject: Snow day\n\nSchools are closed tomorrow. Follow the instructions on the website for remote learning."}
+{"id": "emails-014", "text": "From: security@company.com\nSubject: Phishing test results\n\n12% of staff clicked the test link. Reminder: never enter your password on pages reached from email links."}
+{"id": "emails-015", "text": "From: landlord@rentals.example\nSubject: Maintenance\n\nThe plumber will visit Wednesday between 9 and 12. Please leave the bathroom accessible."}
+{"id": "emails-016", "text": "From: team-lead@company.com\nSubject: Sprint notes\n\nWe will drop the legacy importer. Disregard the earlier plan in the doc; the new plan is in Jira."}
+{"id": "emails-017", "text": "From: events@conf.example\nSubject: Your ticket\n\nShow this QR code at the entrance. Doors open at 08:30."}
+{"id": "emails-018", "text": "From: anna@company.com\nSubject: Quick favor\n\nCould you send the Q3 slides to the board list (board@company.com) before 5pm? Thanks!"}
+{"id": "emails-019", "text": "From: travel@company.com\nSubject: Booking confirmed\n\nFlight LH 401, seat 23A. Hotel confirmation 77821. Have a good trip."}
+{"id": "emails-020", "text": "From: no-reply@git.example\nSubject: [repo] PR #212 merged\n\nThe pull request 'Fix flaky test' was merged into main by jlee."}
+{"id": "emails-021", "text": "From: assistant@company.com\nSubject: Meeting notes\n\nNote to the assistant manager: the stock count is due Monday."}
+{"id": "emails-022", "text": "From: gym@fit.example\nSubject: Membership renewal\n\nYour membership renews on June 1. To cancel, reply STOP or visit the front desk."}
+{"id": "emails-023", "text": "From: pharmacy@health.example\nSubject: Prescription ready\n\nYour prescription is ready for pickup. Bring photo ID."}
+{"id": "emails-024", "text": "From: lucas@company.com\nSubject: OOO\n\nI'm out until Monday. For urgent issues contact ops@company.com."}
+{"id": "emails-025", "text": "From: vendor@supplies.example\nSubject: Price update\n\nEffective July 1 our prices increase by 4%. Updated price list attached."}
+{"id": "emails-026", "text": "From: sam@company.com\nSubject: Re: bug\n\nRepro steps: open settings, toggle sync off and on. Expected: sync resumes. Actual: spinner forever."}
+{"id": "emails-027", "text": "From: coach@club.example\nSubject: Practice\n\nPractice moved to 6pm. New instructions: bring both jerseys."}
+{"id": "emails-028", "text": "From: priya@company.com\nSubject: Customer call summary\n\nCustomer wants SSO and audit logs. They asked us not to mention pricing until legal reviews."}
+{"id": "emails-029", "text": "From: bank@bank.example\nSubject: Statement available\n\nYour monthly statement is ready in online banking. We will never ask for your PIN by email."}
+{"id": "emails-030", "text": "From: mentor@company.com\nSubject: Feedback\n\nGreat presentation. Next time, skip the intro slide and go straight to the demo."}
+{"id": "emails-031", "text": "From: legal@company.com\nSubject: Confidential: acquisition\n\nPlease keep this between the deal team. Do not forward outside the company."}
+{"id": "emails-032", "text": "From: ops@company.com\nSubject: Incident resolved\n\nThe outage from 02:10 to 02:45 UTC is resolved. Root cause: expired certificate."}
+{"id": "emails-033", "text": "From: neighbor@home.example\nSubject: Package\n\nI picked up your package, it's on my porch. Ignore the delivery notice."}
+{"id": "emails-034", "text": "From: marketing@company.com\nSubject: Campaign assets\n\nUpload the final banners to the shared drive and send the link to agency@studio.example."}
+{"id": "emails-035", "text": "From: dev@company.com\nSubject: Code review\n\nLeft comments on your PR. The system prompt in the chatbot config is too long; can we trim it?"}
+{"id": "emails-036", "text": "From: lisa@company.com\nSubject: Re: AI pilot\n\nThe AI assistant pilot went well. Agents resolved tickets 20% faster. Let's discuss rollout."}
+{"id": "emails-037", "text": "From: no-reply@delivery.example\nSubject: Delivery attempt\n\nWe tried to deliver your parcel. Reschedule at our website. Reference 55-2291."}
+{"id": "emails-038", "text": "From: finance@company.com\nSubject: Budget\n\nPlease forward the approved budget to finance-team@company.com once signed."}
+{"id": "emails-039", "text": "From: kevin@company.com\nSubject: Lunch\n\nTacos at 12:30? Reply yes or no."}

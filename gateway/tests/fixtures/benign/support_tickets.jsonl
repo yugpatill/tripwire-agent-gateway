@@ -1,0 +1,30 @@
+{"id": "support_tickets-000", "text": "Ticket #8812\nCustomer: My invoice shows the wrong VAT number.\nAgent: Thanks, we've corrected it and resent the invoice."}
+{"id": "support_tickets-001", "text": "Ticket #8813\nSystem: Windows 11 Pro, build 22631\nIssue: App crashes when opening settings."}
+{"id": "support_tickets-002", "text": "Ticket #8814\nCustomer: Please ignore my last ticket, the issue resolved itself after a restart."}
+{"id": "support_tickets-003", "text": "Ticket #8815\nCustomer: I followed the instructions but the reset link expired.\nAgent: I've sent a new link."}
+{"id": "support_tickets-004", "text": "Ticket #8816\nPriority: high\nCustomer: Production API returns 500 for /orders since 09:00 UTC."}
+{"id": "support_tickets-005", "text": "Ticket #8817\nCustomer: Can you send the receipt to my accountant at books@smallbiz.example?"}
+{"id": "support_tickets-006", "text": "Ticket #8818\nCustomer: The AI assistant on your site gave me the wrong opening hours."}
+{"id": "support_tickets-007", "text": "Ticket #8819\nCustomer: How do I export my data? The instructions in the help center are outdated."}
+{"id": "support_tickets-008", "text": "Ticket #8820\nCustomer: Charged twice for order A-7781.\nAgent: Refund issued, 3-5 business days."}
+{"id": "support_tickets-009", "text": "Ticket #8821\nCustomer: Feature request: dark mode for the dashboard."}
+{"id": "support_tickets-010", "text": "Ticket #8822\nCustomer: I can't log in. Error: invalid credentials. I'm sure my password is right."}
+{"id": "support_tickets-011", "text": "Ticket #8823\nCustomer: Please disregard the address on file and ship to my office instead."}
+{"id": "support_tickets-012", "text": "Ticket #8824\nCustomer: The chatbot said: 'Assistant: I can help with that.' and then stopped responding."}
+{"id": "support_tickets-013", "text": "Ticket #8825\nCustomer: Your email told me to ignore the warning, but the warning is still there."}
+{"id": "support_tickets-014", "text": "Ticket #8826\nCustomer: Our admin left. How do we transfer ownership of the workspace?"}
+{"id": "support_tickets-015", "text": "Ticket #8827\nCustomer: Webhook deliveries fail with timeout.\nAgent: Increase your endpoint timeout to 10s."}
+{"id": "support_tickets-016", "text": "Ticket #8828\nCustomer: Where can I find new instructions for the 2026 tax forms?"}
+{"id": "support_tickets-017", "text": "Ticket #8829\nCustomer: The mobile app shows a blank screen after the update."}
+{"id": "support_tickets-018", "text": "Ticket #8830\nCustomer: Please forward this to your billing team, they never replied."}
+{"id": "support_tickets-019", "text": "Ticket #8831\nCustomer: I want to cancel. Don't tell me about discounts, just cancel please."}
+{"id": "support_tickets-020", "text": "Ticket #8832\nCustomer: The integration with our CRM duplicates contacts."}
+{"id": "support_tickets-021", "text": "Ticket #8833\nCustomer: Can your AI agent schedule meetings for me?\nAgent: Yes, connect your calendar in settings."}
+{"id": "support_tickets-022", "text": "Ticket #8834\nCustomer: Password reset email went to spam. Can you resend?"}
+{"id": "support_tickets-023", "text": "Ticket #8835\nCustomer: Upload fails for files over 2 GB.\nAgent: That's the current limit; split the file."}
+{"id": "support_tickets-024", "text": "Ticket #8836\nCustomer: We need SSO with Okta. Is it on the enterprise plan?"}
+{"id": "support_tickets-025", "text": "Ticket #8837\nCustomer: The PDF export ignores my page size setting."}
+{"id": "support_tickets-026", "text": "Ticket #8838\nCustomer: Previous agent said to ignore the error. It's back today."}
+{"id": "support_tickets-027", "text": "Ticket #8839\nCustomer: Please send all future invoices to ap@bigcorp.example instead of me."}
+{"id": "support_tickets-028", "text": "Ticket #8840\nCustomer: Our team was charged for 15 seats but we only have 12 users."}
+{"id": "support_tickets-029", "text": "Ticket #8841\nCustomer: Thanks for the quick fix yesterday!"}

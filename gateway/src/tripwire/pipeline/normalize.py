@@ -59,7 +59,8 @@ def flatten_strings(value: Any) -> list[str]:
 # Unicode "tag" characters (U+E0000..U+E007F) mirror ASCII and are invisible:
 # used for ASCII smuggling of hidden instructions.
 _TAG_START, _TAG_END = 0xE0000, 0xE007F
-_BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{24,}={0,2}(?![A-Za-z0-9+/=_-])")
+_BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/_-])[A-Za-z0-9+/_-]{24,}={0,2}(?![A-Za-z0-9+/=_-])")
+_JSON_ESCAPES = re.compile(r"(?:\\u[0-9a-fA-F]{4}){4,}")
 _PCT_RUN = re.compile(r"(?:%[0-9A-Fa-f]{2}[^\s%]*){3,}")
 _HTML_COMMENT = re.compile(r"<!--(.*?)-->", re.S)
 _MAX_DECODED = 20_000
@@ -85,6 +86,15 @@ class View:
         return start, end
 
 
+# Common Cyrillic/Greek lookalikes of Latin letters, folded only in the detection
+# view so "Ign\u043ere" (Cyrillic o) still matches "ignore". 1:1 so offsets hold.
+_CONFUSABLES = str.maketrans(
+    "\u0430\u0435\u043e\u0440\u0441\u0443\u0445\u0456\u0458\u0455\u04cf\u0501"
+    "\u03bf\u03b1\u03b5\u03b9\u03ba\u03bd\u03c4\u03c1\u0391\u0392\u0395\u0397\u0399\u039a\u039c\u039d\u039f\u03a1\u03a4\u03a7",
+    "aeopcyxijsldoaeikvtpabehikmnoptx",
+)
+
+
 def _normalized_view(text: str) -> View:
     out: list[str] = []
     offsets: list[int] = []
@@ -92,7 +102,7 @@ def _normalized_view(text: str) -> View:
     for i, ch in enumerate(text):
         if _INVISIBLE.match(ch) or _TAG_START <= ord(ch) <= _TAG_END:
             continue
-        for c in unicodedata.normalize("NFKC", ch).casefold():
+        for c in unicodedata.normalize("NFKC", ch).casefold().translate(_CONFUSABLES):
             if c == "\n":
                 # Keep line breaks: role-marker rules anchor on line starts.
                 while out and out[-1] == " ":
@@ -161,6 +171,20 @@ def detection_views(text: str) -> list[View]:
             views.append(
                 View("base64", normalize_lines(decoded[:_MAX_DECODED]), source_span=m.span())
             )
+
+    for m in _JSON_ESCAPES.finditer(text):
+        try:
+            decoded = m.group(0).encode("ascii").decode("unicode_escape")
+            decoded = decoded.encode("utf-16", "surrogatepass").decode("utf-16")
+        except (UnicodeDecodeError, UnicodeEncodeError):
+            continue
+        hidden = "".join(
+            chr(ord(ch) - _TAG_START) if _TAG_START + 0x20 <= ord(ch) <= _TAG_START + 0x7E else ch
+            for ch in decoded
+        )
+        views.append(
+            View("json_escapes", normalize_lines(hidden[:_MAX_DECODED]), source_span=m.span())
+        )
 
     for m in _PCT_RUN.finditer(text):
         decoded = _unquote(m.group(0))

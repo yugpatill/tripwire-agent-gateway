@@ -53,6 +53,8 @@ ignore = ["S101"]
 # Regex rule tables read better unwrapped.
 "src/tripwire/pipeline/heuristics.py" = ["E501"]
 "src/tripwire/pipeline/secrets.py" = ["E501"]
+# Corpus text is data; wrapping it hurts readability.
+"scripts/build_corpus.py" = ["E501", "RUF001"]
 
 [tool.mypy]
 strict = true
