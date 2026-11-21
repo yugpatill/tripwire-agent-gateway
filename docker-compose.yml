@@ -39,7 +39,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://tripwire:tripwire@postgres:5432/tripwire
       REDIS_URL: redis://redis:6379/0
       TRIPWIRE_POLICY_PATH: /app/policies/demo.yaml
-      TRIPWIRE_CLASSIFIER_DIR: /app/models/injection-deberta
+      TRIPWIRE_CLASSIFIER_DIR: /app/models/injection-classifier
     ports: ["8000:8000"]
     volumes:
       - ./gateway/src:/app/src

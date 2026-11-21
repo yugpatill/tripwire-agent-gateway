@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
 
     tripwire_policy_path: str = "policies/demo.yaml"
-    tripwire_classifier_dir: str = "models/injection-deberta"
+    tripwire_classifier_dir: str = "models/injection-classifier"
     tripwire_llm_judge_enabled: bool = False
     tripwire_llm_judge_model: str = ""  # required when the judge is enabled
     tripwire_llm_judge_timeout_s: float = 5.0

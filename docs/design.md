@@ -116,7 +116,7 @@ The SDK adapter package (`tripwire-guard`, in `gateway/sdk/`) keeps heavy framew
 
 Default classifier: **`microsoft/deberta-v3-small`** (int8 ONNX about 172 MB), chosen for latency and image size. `microsoft/deberta-v3-base` (about 243 MB) remains an option. Milestone 4 trains both and reports accuracy against latency for each before the default is final.
 
-Output contract: `ml/artifacts/injection-deberta/` containing `model.int8.onnx`, `tokenizer.json`, `config.json` (with `max_length`, `threshold`, `labels`) and `metrics.json`. The gateway reads only this folder (path from `TRIPWIRE_CLASSIFIER_DIR`), copied into the image at build time or downloaded from a GitHub Release asset.
+Output contract: `ml/artifacts/injection-<model>/` containing `model.int8.onnx`, `tokenizer.json`, `config.json` (with `max_length`, `threshold`, `labels`) and `metrics.json`. The gateway reads only this folder (path from `TRIPWIRE_CLASSIFIER_DIR`, default `/app/models/injection-classifier`). The default model's folder is published as a GitHub Release asset, and the Docker build downloads it and verifies its SHA-256.
 
 ### 4.4 `evals/` (benchmarks, never deployed)
 
@@ -147,6 +147,18 @@ Evals never import `gateway`; they call `POST /v1/check/call` and `POST /v1/chec
 | motion | `^11` or later | Block animation in the playground. |
 
 React 19 peer-dependency warnings are resolved explicitly, never with `--force` or `--legacy-peer-deps`.
+
+### 4.6 Third-party models and data (classifier, milestone 4)
+
+| Item | License | How it is used |
+|---|---|---|
+| `nreimers/MiniLM-L6-H384-uncased` | MIT | Candidate base for the default classifier (fine-tuned; weights published) |
+| `sentence-transformers/all-MiniLM-L6-v2` | Apache-2.0 | Candidate base for the default classifier (fine-tuned; weights published) |
+| `microsoft/deberta-v3-small` | MIT | Base for the opt-in accurate classifier (fine-tuned) |
+| `meta-llama/Llama-Prompt-Guard-2-22M` | **Llama 4 Community License** (gated on Hugging Face) | Zero-shot baseline, **evaluation only**. Weights and converted ONNX copies are never committed, published or shipped in the image, which keeps the license's redistribution duties (copy of the agreement, "Built with Llama" notice, NOTICE file, "Llama" prefix for derived model names) from applying. Only our metrics are published. Use remains subject to Meta's Acceptable Use Policy. |
+| `deepset/prompt-injections` | Apache-2.0 | Training and evaluation data |
+| `databricks/databricks-dolly-15k` | CC BY-SA 3.0 | Benign carriers and imperative hard negatives |
+| `rajpurkar/squad_v2` | CC BY-SA 4.0 | Wikipedia paragraphs as benign web-page carriers |
 
 ## 5. Repository layout
 
