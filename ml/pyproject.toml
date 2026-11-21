@@ -4,8 +4,14 @@ version = "0.1.0"
 description = "Tripwire ml (separate environment; never imports the gateway)"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "accelerate>=1.1",
+    "datasets>=3.1",
+    "evaluate>=0.4.6",
+    "matplotlib>=3.11.2",
     "onnx>=1.17",
     "optimum[onnxruntime]>=2.1.0",
+    "pandas>=3.1.1",
+    "scikit-learn>=1.5",
     "sentencepiece>=0.2.3",
     "torch>=2.5,<3",
     "transformers>=4.46,<5",

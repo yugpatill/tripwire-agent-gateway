@@ -29,6 +29,8 @@ ml/artifacts/**
 !ml/artifacts/.gitkeep
 !ml/artifacts/*/
 !ml/artifacts/*/metrics.json
+ml/checkpoints/
+ml/logs/
 evals/.cache/
 evals/**/.cache/
 evals/results/cache/
