@@ -1,0 +1,81 @@
+# Local development stack. `docker compose up` (or `make dev`).
+# Optional tracing backend: `docker compose --profile observability up`.
+# Mock MCP servers are added in Phase 5.
+
+name: tripwire
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tripwire
+      POSTGRES_PASSWORD: tripwire
+      POSTGRES_DB: tripwire
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tripwire -d tripwire"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4-alpine
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  gateway:
+    build:
+      context: ./gateway
+      target: dev
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://tripwire:tripwire@postgres:5432/tripwire
+      REDIS_URL: redis://redis:6379/0
+      TRIPWIRE_POLICY_PATH: /app/policies/demo.yaml
+      TRIPWIRE_CLASSIFIER_DIR: /app/models/injection-deberta
+    ports: ["8000:8000"]
+    volumes:
+      - ./gateway/src:/app/src
+      - ./gateway/alembic:/app/alembic
+      - ./gateway/policies:/app/policies
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: ./web
+      target: dev
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      NEXT_PUBLIC_WS_URL: ws://localhost:8000/v1/stream
+      WATCHPACK_POLLING: "true"
+    ports: ["3000:3000"]
+    volumes:
+      - ./web:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      gateway: { condition: service_healthy }
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62.0
+    profiles: [observability]
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports: ["16686:16686", "4318:4318"]
+
+volumes:
+  pgdata:

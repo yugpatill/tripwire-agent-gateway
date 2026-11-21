@@ -1,0 +1,25 @@
+# Tripwire
+
+Open source security gateway for LLM agents: stops prompt injection, tool poisoning and data exfiltration between an agent and its tools.
+
+> Status: early development (Phase 1 of 10: skeleton and infrastructure).
+
+## Quickstart
+
+```bash
+cp .env.example .env
+docker compose up --build
+curl localhost:8000/healthz   # {"status":"ok"}
+open http://localhost:3000
+```
+
+## Layout
+
+| Path | What |
+|---|---|
+| `gateway/` | FastAPI gateway (Python 3.12, uv) |
+| `web/` | Next.js 16 playground + operator console |
+| `ml/` | Injection classifier training (separate env) |
+| `evals/` | AgentDojo + MCP benchmarks (separate env) |
+
+License: MIT.

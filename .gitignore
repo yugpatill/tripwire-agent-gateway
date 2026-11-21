@@ -1,0 +1,37 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+
+# node
+node_modules/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# ml / evals
+ml/data/*
+!ml/data/.gitkeep
+ml/artifacts/**
+!ml/artifacts/
+!ml/artifacts/.gitkeep
+!ml/artifacts/*/
+!ml/artifacts/*/metrics.json
+evals/.cache/
+
+# os / editors
+.DS_Store
+.idea/
+.vscode/

@@ -1,0 +1,40 @@
+name: gateway
+
+on:
+  push:
+    branches: [main]
+    paths: ["gateway/**", ".github/workflows/gateway.yml"]
+  pull_request:
+    paths: ["gateway/**", ".github/workflows/gateway.yml"]
+
+defaults:
+  run:
+    working-directory: gateway
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tripwire
+          POSTGRES_PASSWORD: tripwire
+          POSTGRES_DB: tripwire
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tripwire" --health-interval 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://tripwire:tripwire@localhost:5432/tripwire
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - run: uv sync --frozen
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy src
+      - run: uv run alembic upgrade head && uv run alembic check
+      - run: uv run pytest -q --cov=tripwire --cov-report=term
