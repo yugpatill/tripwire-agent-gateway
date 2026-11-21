@@ -13,7 +13,11 @@ from urllib.parse import urlsplit
 
 from tripwire.pipeline.normalize import strip_invisible
 
-_EMAIL = re.compile(r"(?<![\w.+-])[\w.+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}")
+# Domain labels accept any Unicode letter or digit so internationalized and homoglyph
+# domains (e.g. "evil.io" spelled with Cyrillic U+0456 for "i") are extracted as entities.
+_LABEL = r"(?:[^\W_]|-)+"
+_TLD = r"[^\W\d_]{2,}"
+_EMAIL = re.compile(rf"(?<![\w.+-])[\w.+-]+@{_LABEL}(?:\.{_LABEL})*\.{_TLD}")
 _URL = re.compile(r"\b(?:https?|ftp)://[^\s<>\"'`)\]}]+", re.IGNORECASE)
 _PATH = re.compile(r"(?<![\w/.:])(?:~|\.{1,2})?(?:/[\w.@+-]+){2,}/?")
 # Digit runs with optional single separators (space, dash, dot): card, account, phone numbers.

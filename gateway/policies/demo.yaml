@@ -47,6 +47,11 @@ tools:
     confidentiality: confidential
     sink: true
     risk: high
+  contacts__lookup:
+    trust: trusted      # the company directory
+    confidentiality: internal
+    sink: false
+    risk: low
   calculator__add:
     trust: untrusted
     confidentiality: public
