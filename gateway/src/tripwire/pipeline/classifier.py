@@ -28,6 +28,13 @@ from tripwire.models import DetectorResult
 log = structlog.get_logger(__name__)
 
 OVERLAP_TOKENS = 64
+# Long outputs: classify at most the first/last HEAD_TAIL_WINDOWS windows plus any
+# window that overlaps a weak heuristic signal (see docs/limitations.md).
+MAX_FULL_WINDOWS = 8
+HEAD_TAIL_WINDOWS = 4
+# A "focus" span longer than this fraction of the text (e.g. a whole-document
+# invisible-character signal) does not localize anything and is ignored.
+MAX_FOCUS_FRACTION = 0.5
 MODEL_FILE = "model.int8.onnx"
 TOKENIZER_FILE = "tokenizer.json"
 CONFIG_FILE = "config.json"
@@ -55,7 +62,7 @@ def _load_config(path: Path) -> ClassifierConfig:
 
 
 class InjectionClassifier:
-    def __init__(self, model_dir: str | Path | None, intra_op_threads: int = 1) -> None:
+    def __init__(self, model_dir: str | Path | None, intra_op_threads: int = 2) -> None:
         self.model_dir = Path(model_dir) if model_dir else None
         self.available = False
         self.reason = ""
@@ -114,12 +121,37 @@ class InjectionClassifier:
         # Reserve room for special tokens added by the post-processor (e.g. [CLS] ... [SEP]).
         specials = tok.num_special_tokens_to_add(False)
         body = self.config.max_length - specials
-        stride = body - OVERLAP_TOKENS
-        if len(ids) <= body:
-            return [ids]
-        return [ids[i : i + body] for i in range(0, max(len(ids) - OVERLAP_TOKENS, 1), stride)]
+        return [ids[s : s + body] for s in self._window_starts(len(ids))]
 
-    def score(self, text: str) -> DetectorResult:
+    def _window_starts(self, n_tokens: int) -> list[int]:
+        assert self.config is not None
+        body = self.config.max_length - self._tokenizer.num_special_tokens_to_add(False)
+        if n_tokens <= body:
+            return [0]
+        stride = body - OVERLAP_TOKENS
+        return list(range(0, max(n_tokens - OVERLAP_TOKENS, 1), stride))
+
+    @staticmethod
+    def select_windows(
+        char_ranges: list[tuple[int, int]],
+        focus: list[tuple[int, int]],
+        text_len: int,
+    ) -> list[int]:
+        """Indices of windows to classify: all of them for short inputs; for long
+        ones the first and last HEAD_TAIL_WINDOWS plus windows overlapping a focus span."""
+        n = len(char_ranges)
+        if n <= MAX_FULL_WINDOWS:
+            return list(range(n))
+        chosen = set(range(HEAD_TAIL_WINDOWS)) | set(range(n - HEAD_TAIL_WINDOWS, n))
+        for fs, fe in focus:
+            if fe - fs > MAX_FOCUS_FRACTION * text_len:
+                continue
+            chosen.update(i for i, (s, e) in enumerate(char_ranges) if s < fe and fs < e)
+        return sorted(chosen)
+
+    def score(self, text: str, focus: list[tuple[int, int]] | None = None) -> DetectorResult:
+        """p(injection) as the max over windows. `focus` spans (e.g. weak heuristic
+        hits) decide which middle windows are classified for long inputs."""
         if not self.available or not text.strip():
             return DetectorResult(
                 detector="classifier", score=0.0, spans=[], reason=self.reason or "empty input"
@@ -128,10 +160,16 @@ class InjectionClassifier:
         enc = self._tokenizer.encode(text, add_special_tokens=False)
         ids: list[int] = enc.ids
         offsets: list[tuple[int, int]] = enc.offsets
-        best, best_span = 0.0, (0, len(text))
-        start = 0
-        for window in self._windows(ids):
-            input_ids = self._with_specials(window)
+        if not ids:
+            return DetectorResult(detector="classifier", score=0.0, spans=[], reason="no tokens")
+        body = self.config.max_length - self._tokenizer.num_special_tokens_to_add(False)
+        starts = self._window_starts(len(ids))
+        ranges = [(offsets[st][0], offsets[min(st + body, len(ids)) - 1][1]) for st in starts]
+        selected = self.select_windows(ranges, focus or [], len(text))
+        best, best_span = 0.0, ranges[0]
+        for i in selected:
+            st = starts[i]
+            input_ids = self._with_specials(ids[st : st + body])
             feed = {
                 "input_ids": np.asarray([input_ids], dtype=np.int64),
                 "attention_mask": np.ones((1, len(input_ids)), dtype=np.int64),
@@ -144,14 +182,15 @@ class InjectionClassifier:
             probs /= probs.sum()
             p = float(probs[self.config.positive_index])
             if p > best:
-                end = min(start + len(window), len(offsets)) - 1
-                best, best_span = p, (offsets[start][0], offsets[end][1])
-            start += len(window) - OVERLAP_TOKENS
+                best, best_span = p, ranges[i]
         return DetectorResult(
             detector="classifier",
             score=round(best, 4),
             spans=[best_span] if best > 0 else [],
-            reason=f"max window p(injection)={best:.3f}",
+            reason=(
+                f"max window p(injection)={best:.3f}; "
+                f"classified {len(selected)}/{len(starts)} windows"
+            ),
         )
 
     def _with_specials(self, window: list[int]) -> list[int]:

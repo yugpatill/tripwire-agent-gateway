@@ -91,14 +91,18 @@ class DetectionPipeline:
         results.append(h)
         score = h.score
 
-        if self.classifier is not None and self.classifier.available:
-            c = await self._timed(
-                timings,
-                "classifier",
-                lambda: asyncio.to_thread(self.classifier.score, text),  # type: ignore[union-attr]
-            )
-            results.append(c)
-            score = max(score, c.score)
+        clf = self.classifier
+        if clf is not None and clf.available:
+            if h.score >= classifier_threshold:
+                # Early exit: heuristics alone already exceed the classifier threshold.
+                timings["classifier_skipped"] = 0.0
+            else:
+                focus = h.spans if h.score > 0 else []
+                c = await self._timed(
+                    timings, "classifier", lambda: asyncio.to_thread(clf.score, text, focus)
+                )
+                results.append(c)
+                score = max(score, c.score)
 
         suspicious = score >= suspicious_threshold
         if suspicious and score < classifier_threshold and self.judge is not None:
