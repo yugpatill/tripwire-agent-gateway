@@ -70,7 +70,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = make_engine(settings.database_url)
-        app.state.engine = engine
+        app.state.db_engine = engine
         app.state.sessionmaker = make_sessionmaker(engine)
         app.state.redis = aioredis.Redis.from_url(settings.redis_url, decode_responses=True)
         app.state.authenticator = ApiKeyAuthenticator(SqlKeyRepository(app.state.sessionmaker))

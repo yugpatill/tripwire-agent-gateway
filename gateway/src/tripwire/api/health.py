@@ -31,7 +31,7 @@ async def readyz(request: Request, response: Response) -> ReadyResponse:
     checks: dict[str, bool] = {"database": False, "redis": False}
     # Readiness must never raise; any failure just marks the dependency down.
     with contextlib.suppress(Exception):
-        async with request.app.state.engine.connect() as conn:
+        async with request.app.state.db_engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
         checks["database"] = True
     with contextlib.suppress(Exception):

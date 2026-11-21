@@ -129,6 +129,12 @@ def test_untrusted_recipient_blocked_over_http(client: TestClient) -> None:
     assert set(blocked.stage_timings) >= {"propagate", "evaluate"}
 
 
+def test_readyz_ok_with_live_backends(client: TestClient) -> None:
+    r = client.get("/readyz")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"status": "ok", "checks": {"database": True, "redis": True}}
+
+
 def test_unknown_session_blocked_over_http(client: TestClient) -> None:
     d = _post(
         client,
