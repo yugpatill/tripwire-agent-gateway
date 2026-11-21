@@ -289,3 +289,48 @@ async def test_address_from_trusted_tool_is_allowed_and_not_untrusted_origin() -
     labels = {(p.source, p.trust) for p in d.arg_labels["to"]}
     assert labels == {("contacts__lookup", "trusted")}
     assert all(p.trust != "untrusted_origin" for p in d.arg_labels["to"])
+
+
+async def test_session_has_suspicious_requires_approval_for_sinks() -> None:
+    engine = make_engine()
+    sid = await session(engine, "Email the notes to alice@company.com")
+    # Phase 3 detectors set this flag; here we set it directly on the store.
+    await engine.store.mark_context(sid, confidentiality="public", untrusted=True, suspicious=True)
+    d = await engine.check_call(
+        call(sid, "email__send_email", to="alice@company.com", subject="s", body="b")
+    )
+    assert (d.action, d.rule_id) == ("require_approval", "suspicious-session-sinks")
+    read = await engine.check_call(call(sid, "files__read_file", path="/tmp/notes.txt"))
+    assert read.action == "allow"  # not a sink
+
+
+async def test_limit_counts_are_per_session() -> None:
+    engine = make_engine()
+    a = await session(engine, "pay account 123456789")
+    b = await session(engine, "pay account 123456789")
+    for _ in range(3):
+        await engine.check_call(call(a, "bank__transfer", to_account="123456789", amount=1))
+    assert (
+        await engine.check_call(call(a, "bank__transfer", to_account="123456789", amount=1))
+    ).action == "block"
+    assert (
+        await engine.check_call(call(b, "bank__transfer", to_account="123456789", amount=1))
+    ).action == "allow"
+
+
+async def test_shadow_mode_redact_returns_log_only_without_redaction() -> None:
+    p = policy_from(
+        "version: 1\ndefaults: {unknown_tool: allow}\nrules:\n"
+        "  - {id: mask-body, when: {tool: 'x__y', arg: body}, action: redact}\n"
+    )
+    engine = make_engine(p)
+    sid = await session(engine, "hi", mode="shadow")
+    d = await engine.check_call(call(sid, "x__y", body="secret stuff"))
+    assert (d.action, d.rule_id, d.redacted_args) == ("log_only", "mask-body", None)
+
+
+async def test_shadow_mode_leaves_allow_untouched() -> None:
+    engine = make_engine()
+    sid = await session(engine, "add numbers", mode="shadow")
+    d = await engine.check_call(call(sid, "calculator__add", a=1, b=2))
+    assert (d.action, d.rule_id) == ("allow", None)

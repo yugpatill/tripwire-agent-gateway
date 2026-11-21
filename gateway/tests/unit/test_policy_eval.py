@@ -207,3 +207,27 @@ def test_confidentiality_by_path() -> None:
     args: dict[str, Any] = {"path": "/home/bob/.ssh/id_rsa"}
     assert p.result_confidentiality("files__read", args) == "secret"
     assert p.result_confidentiality("files__read", {"path": "/tmp/notes.txt"}) == "internal"
+
+
+async def test_when_keys_combine_with_and() -> None:
+    p = pol("  - {id: r, when: {tool: 'mail__*', sink: true, risk: low}, action: block}\n")
+    # mail__send is a high-risk sink: tool and sink match, risk does not.
+    assert (await run(p, facts(p))).action == "allow"
+
+
+async def test_unless_without_arg_checks_all_args() -> None:
+    p = pol(
+        "  - id: r\n    when: {sink: true}\n"
+        "    unless: {arg_domain_in: ['@company.com']}\n    action: block\n"
+    )
+    ok = facts(p, args={"to": ["a@company.com"], "cc": ["b@company.com"]})
+    leak = facts(p, args={"to": ["a@company.com"], "cc": ["b@evil.io"]})
+    assert (await run(p, ok)).action == "allow"
+    assert (await run(p, leak)).action == "block"
+
+
+async def test_label_any_matches_untrusted_origin() -> None:
+    p = pol("  - {id: r, when: {arg: to, label_any: [untrusted_origin]}, action: block}\n")
+    f = facts(p, labels={"to": [_label("untrusted_origin")]})
+    assert (await run(p, f)).action == "block"
+    assert (await run(p, facts(p, labels={"to": [_label("untrusted")]}))).action == "allow"
