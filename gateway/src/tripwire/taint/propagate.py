@@ -50,6 +50,30 @@ def tag_content(content: Any, provenance: Provenance) -> list[TaggedValue]:
     return [tag_text(s, provenance) for s in flatten_strings(content) if s.strip()]
 
 
+class ValueIndex:
+    """Session values plus an entity -> values index. Append-only, so it can be
+    cached per session and extended incrementally as new results arrive."""
+
+    __slots__ = ("by_entity", "prompt_entities", "values")
+
+    def __init__(self, values: Iterable[TaggedValue] = ()) -> None:
+        self.values: list[TaggedValue] = []
+        self.by_entity: dict[str, list[TaggedValue]] = {}
+        self.prompt_entities: set[str] = set()
+        self.extend(values)
+
+    def __len__(self) -> int:
+        return len(self.values)
+
+    def extend(self, values: Iterable[TaggedValue]) -> None:
+        for tv in values:
+            self.values.append(tv)
+            for key in tv.entities:
+                self.by_entity.setdefault(key, []).append(tv)
+            if tv.provenance.source == USER_SOURCE:
+                self.prompt_entities.update(tv.entities)
+
+
 @dataclass(slots=True)
 class ArgLabelling:
     arg_labels: dict[str, list[Provenance]] = field(default_factory=dict)
@@ -108,16 +132,14 @@ class _Collector:
 
 def label_args(
     args: dict[str, Any],
-    values: list[TaggedValue],
-    prompt_entities: set[str],
+    index: ValueIndex,
     session: SessionState,
     to_event: UUID,
 ) -> ArgLabelling:
     out = ArgLabelling()
-    by_entity: dict[str, list[TaggedValue]] = {}
-    for tv in values:
-        for key in tv.entities:
-            by_entity.setdefault(key, []).append(tv)
+    values = index.values
+    by_entity = index.by_entity
+    prompt_entities = index.prompt_entities
 
     for name, value in args.items():
         leaves = [leaf[:MAX_LEAF_CHARS] for leaf in flatten_strings(value)]

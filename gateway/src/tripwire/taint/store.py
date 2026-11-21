@@ -41,7 +41,8 @@ class TaintStore(Protocol):
         suspicious: bool,
     ) -> None: ...
     async def add_values(self, session_id: UUID, values: list[TaggedValue]) -> None: ...
-    async def get_values(self, session_id: UUID) -> list[TaggedValue]: ...
+    async def get_values(self, session_id: UUID, start: int = 0) -> list[TaggedValue]: ...
+    async def count_values(self, session_id: UUID) -> int: ...
     async def record_call(self, session_id: UUID, call: CallRecord) -> None: ...
     async def get_call(self, session_id: UUID, event_id: UUID) -> CallRecord | None: ...
     async def incr_counter(self, session_id: UUID, name: str) -> int: ...
@@ -79,8 +80,11 @@ class InMemoryTaintStore:
     async def add_values(self, session_id: UUID, values: list[TaggedValue]) -> None:
         self._values.setdefault(session_id, []).extend(values)
 
-    async def get_values(self, session_id: UUID) -> list[TaggedValue]:
-        return list(self._values.get(session_id, []))
+    async def get_values(self, session_id: UUID, start: int = 0) -> list[TaggedValue]:
+        return list(self._values.get(session_id, [])[start:])
+
+    async def count_values(self, session_id: UUID) -> int:
+        return len(self._values.get(session_id, []))
 
     async def record_call(self, session_id: UUID, call: CallRecord) -> None:
         self._calls[(session_id, call.event_id)] = call
@@ -164,9 +168,13 @@ class RedisTaintStore:
         await self._r.rpush(key, *[v.model_dump_json() for v in values])  # type: ignore[misc]
         await self._r.expire(key, self._ttl)
 
-    async def get_values(self, session_id: UUID) -> list[TaggedValue]:
-        raw: list[str] = await self._r.lrange(self._k(session_id, "values"), 0, -1)  # type: ignore[misc]
+    async def get_values(self, session_id: UUID, start: int = 0) -> list[TaggedValue]:
+        raw: list[str] = await self._r.lrange(self._k(session_id, "values"), start, -1)  # type: ignore[misc]
         return [TaggedValue.model_validate_json(r) for r in raw]
+
+    async def count_values(self, session_id: UUID) -> int:
+        n: int = await self._r.llen(self._k(session_id, "values"))  # type: ignore[misc]
+        return n
 
     async def record_call(self, session_id: UUID, call: CallRecord) -> None:
         key = self._k(session_id, "calls")

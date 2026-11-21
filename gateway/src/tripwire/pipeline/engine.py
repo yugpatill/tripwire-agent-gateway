@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import time
 import uuid
+from collections import OrderedDict
 from collections.abc import Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -27,7 +28,7 @@ from tripwire.policy.compiler import UNKNOWN_TOOL_SPEC, CallFacts, CompiledPolic
 from tripwire.policy.evaluate import evaluate
 from tripwire.taint.entities import entity_keys
 from tripwire.taint.labels import USER_SOURCE, Provenance
-from tripwire.taint.propagate import label_args, tag_content, tag_text
+from tripwire.taint.propagate import ValueIndex, label_args, tag_content, tag_text
 from tripwire.taint.store import CallRecord, SessionState, TaintStore
 
 log = structlog.get_logger(__name__)
@@ -66,11 +67,32 @@ class Engine:
         recorder: Recorder,
         policy: CompiledPolicy | None,
         default_mode: str = "enforce",
+        index_cache_size: int = 2048,
     ) -> None:
         self.store = store
         self.recorder = recorder
         self.policy = policy  # None => policy failed to load: every decision fails closed
         self.default_mode = default_mode
+        # Per-session value index, extended incrementally (values are append-only in the
+        # store, which stays the source of truth across workers).
+        self._indexes: OrderedDict[UUID, ValueIndex] = OrderedDict()
+        self.index_cache_size = index_cache_size
+
+    async def _value_index(self, session_id: UUID) -> ValueIndex:
+        idx = self._indexes.get(session_id)
+        stored = await self.store.count_values(session_id)
+        if idx is None or len(idx) > stored:
+            idx = ValueIndex()
+            self._indexes[session_id] = idx
+        self._indexes.move_to_end(session_id)
+        while len(self._indexes) > self.index_cache_size:
+            self._indexes.popitem(last=False)
+        if len(idx) < stored:
+            start = len(idx)
+            new = await self.store.get_values(session_id, start)
+            # Another coroutine may have extended the index while we awaited.
+            idx.extend(new[len(idx) - start :])
+        return idx
 
     # ---------- sessions ----------
 
@@ -107,12 +129,9 @@ class Engine:
             session = await self.store.get_session(call.session_id)
             if session is None:
                 raise UnknownSessionError(str(call.session_id))
-            values = await self.store.get_values(call.session_id)
-        prompt_entities = {
-            k for tv in values if tv.provenance.source == USER_SOURCE for k in tv.entities
-        }
+            index = await self._value_index(call.session_id)
         with timer.stage("propagate"):
-            labelling = label_args(call.args, values, prompt_entities, session, event_id)
+            labelling = label_args(call.args, index, session, event_id)
         spec = policy.tool_spec(call.tool)
         facts = CallFacts(
             tool=call.tool,
@@ -146,38 +165,38 @@ class Engine:
             await self.store.record_call(
                 call.session_id, CallRecord(event_id=event_id, tool=call.tool, args=call.args)
             )
-            decision = Decision(
-                event_id=event_id,
-                action=enforced,
+        decision = Decision(
+            event_id=event_id,
+            action=enforced,
+            rule_id=ev.rule_id,
+            message=message,
+            arg_labels=labelling.arg_labels,
+            detectors=[],
+            redacted_args=redacted if enforced == "redact" else None,
+            latency_ms=0.0,
+            approval_id=None,
+        )
+        await self.recorder.record_event(
+            EventRecord(
+                id=event_id,
+                session_id=call.session_id,
+                kind="call",
+                tool=call.tool,
+                payload={"args": call.args},
+                action=computed,
+                enforced_action=enforced,
                 rule_id=ev.rule_id,
                 message=message,
-                arg_labels=labelling.arg_labels,
+                labels={
+                    k: [p.model_dump(mode="json") for p in v]
+                    for k, v in labelling.arg_labels.items()
+                },
                 detectors=[],
-                redacted_args=redacted if enforced == "redact" else None,
-                latency_ms=0.0,
-                approval_id=None,
+                edges=[e.model_dump(mode="json") for e in labelling.edges],
+                latency_ms=timer.total_ms,
+                stage_timings=dict(timer.timings),
             )
-            await self.recorder.record_event(
-                EventRecord(
-                    id=event_id,
-                    session_id=call.session_id,
-                    kind="call",
-                    tool=call.tool,
-                    payload={"args": call.args},
-                    action=computed,
-                    enforced_action=enforced,
-                    rule_id=ev.rule_id,
-                    message=message,
-                    labels={
-                        k: [p.model_dump(mode="json") for p in v]
-                        for k, v in labelling.arg_labels.items()
-                    },
-                    detectors=[],
-                    edges=[e.model_dump(mode="json") for e in labelling.edges],
-                    latency_ms=timer.total_ms,
-                    stage_timings=timer.timings,
-                )
-            )
+        )
         decision.latency_ms = timer.total_ms
         log.info(
             "decision.call",
