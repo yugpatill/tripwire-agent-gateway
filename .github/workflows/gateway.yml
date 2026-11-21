@@ -1,6 +1,7 @@
 name: gateway
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths: ["gateway/**", ".github/workflows/gateway.yml"]
