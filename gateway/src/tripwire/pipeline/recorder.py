@@ -36,6 +36,7 @@ class SessionRecord:
     user_prompt: str
     prompt_entities: list[str]
     mode: str
+    api_key_id: UUID | None = None
 
 
 class Recorder(Protocol):
@@ -68,6 +69,7 @@ class SqlRecorder:
                     user_prompt=rec.user_prompt,
                     prompt_entities=rec.prompt_entities,
                     mode=rec.mode,
+                    api_key_id=rec.api_key_id,
                 )
             )
 

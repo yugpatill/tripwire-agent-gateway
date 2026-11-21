@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from tripwire import __version__
 from tripwire.api import check, health, sessions
+from tripwire.auth.api_keys import ApiKeyAuthenticator, SqlKeyRepository
 from tripwire.config import Settings, get_settings
 from tripwire.db.session import make_engine, make_sessionmaker
 from tripwire.log_config import configure_logging
@@ -46,6 +47,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.engine = engine
         app.state.sessionmaker = make_sessionmaker(engine)
         app.state.redis = aioredis.Redis.from_url(settings.redis_url, decode_responses=True)
+        app.state.authenticator = ApiKeyAuthenticator(SqlKeyRepository(app.state.sessionmaker))
         app.state.engine = Engine(
             store=RedisTaintStore(app.state.redis),
             recorder=SqlRecorder(app.state.sessionmaker),

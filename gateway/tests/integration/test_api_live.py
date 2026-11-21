@@ -17,6 +17,7 @@ import redis.asyncio as aioredis
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
+from tripwire.auth.api_keys import SqlKeyRepository
 from tripwire.config import Settings
 from tripwire.db import models as db
 from tripwire.main import create_app
@@ -46,7 +47,11 @@ def client() -> Iterator[TestClient]:
         log_json=False,
     )
     with TestClient(create_app(settings)) as c:
+        repo = SqlKeyRepository(c.app.state.sessionmaker)  # type: ignore[attr-defined]
+        key = c.portal.call(repo.create, "integration-test")  # type: ignore[union-attr]
+        c.headers["Authorization"] = f"Bearer {key.token}"
         yield c
+        c.portal.call(repo.revoke, key.id)  # type: ignore[union-attr]
 
 
 def _post(client: TestClient, path: str, body: dict[str, Any]) -> dict[str, Any]:
@@ -130,6 +135,29 @@ def test_unknown_session_blocked_over_http(client: TestClient) -> None:
         {"session_id": str(uuid.uuid4()), "tool": "calculator__add", "args": {}},
     )
     assert (d["action"], d["rule_id"]) == ("block", "unknown-session")
+
+
+def test_missing_and_revoked_keys_rejected(client: TestClient) -> None:
+    body = {"agent_name": "it", "user_prompt": "hi"}
+    assert client.post("/v1/sessions", json=body, headers={"Authorization": ""}).status_code == 401
+    repo = SqlKeyRepository(client.app.state.sessionmaker)  # type: ignore[attr-defined]
+    key = client.portal.call(repo.create, "to-revoke")  # type: ignore[union-attr]
+    client.portal.call(repo.revoke, key.id)  # type: ignore[union-attr]
+    h = {"Authorization": f"Bearer {key.token}"}
+    assert client.post("/v1/sessions", json=body, headers=h).status_code == 401
+
+
+def test_session_from_other_key_is_unknown_over_http(client: TestClient) -> None:
+    sid = _post(client, "/v1/sessions", {"agent_name": "it", "user_prompt": "hi"})["session_id"]
+    repo = SqlKeyRepository(client.app.state.sessionmaker)  # type: ignore[attr-defined]
+    other = client.portal.call(repo.create, "other-agent")  # type: ignore[union-attr]
+    r = client.post(
+        "/v1/check/call",
+        json={"session_id": sid, "tool": "calculator__add", "args": {}},
+        headers={"Authorization": f"Bearer {other.token}"},
+    )
+    assert (r.json()["action"], r.json()["rule_id"]) == ("block", "unknown-session")
+    client.portal.call(repo.revoke, other.id)  # type: ignore[union-attr]
 
 
 def test_invalid_request_is_422(client: TestClient) -> None:

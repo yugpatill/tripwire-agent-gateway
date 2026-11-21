@@ -10,6 +10,7 @@ Open source security gateway for LLM agents: stops prompt injection, tool poison
 cp .env.example .env
 docker compose up --build
 curl localhost:8000/healthz   # {"status":"ok"}
+docker compose exec gateway tripwire keys create --name my-agent   # prints a tw_... key once
 open http://localhost:3000
 ```
 

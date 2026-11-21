@@ -96,10 +96,12 @@ class Engine:
 
     # ---------- sessions ----------
 
-    async def create_session(self, req: SessionCreate) -> UUID:
+    async def create_session(self, req: SessionCreate, owner: UUID | None = None) -> UUID:
         session_id = uuid.uuid4()
         entities = entity_keys(req.user_prompt)
-        await self.store.create_session(SessionState(session_id=session_id, mode=req.mode))
+        await self.store.create_session(
+            SessionState(session_id=session_id, mode=req.mode, owner=owner)
+        )
         # The prompt itself is a trusted value; its event id is the session id.
         prompt_label = Provenance(
             source=USER_SOURCE, trust="trusted", confidentiality="internal", event_id=session_id
@@ -107,28 +109,28 @@ class Engine:
         if req.user_prompt.strip():
             await self.store.add_values(session_id, [tag_text(req.user_prompt, prompt_label)])
         await self.recorder.record_session(
-            SessionRecord(session_id, req.agent_name, req.user_prompt, entities, req.mode)
+            SessionRecord(session_id, req.agent_name, req.user_prompt, entities, req.mode, owner)
         )
         return session_id
 
     # ---------- tool calls ----------
 
-    async def check_call(self, call: ToolCall) -> Decision:
+    async def check_call(self, call: ToolCall, owner: UUID | None = None) -> Decision:
         event_id = uuid.uuid4()
         timer = StageTimer()
         try:
-            return await self._check_call(call, event_id, timer)
+            return await self._check_call(call, event_id, timer, owner)
         except Exception as exc:
             return await self._fail_closed(
                 call.session_id, call.tool, "call", call.args, event_id, timer, exc
             )
 
-    async def _check_call(self, call: ToolCall, event_id: UUID, timer: StageTimer) -> Decision:
+    async def _check_call(
+        self, call: ToolCall, event_id: UUID, timer: StageTimer, owner: UUID | None
+    ) -> Decision:
         policy = self._require_policy()
         with timer.stage("load_session"):
-            session = await self.store.get_session(call.session_id)
-            if session is None:
-                raise UnknownSessionError(str(call.session_id))
+            session = await self._owned_session(call.session_id, owner)
             index = await self._value_index(call.session_id)
         with timer.stage("propagate"):
             labelling = label_args(call.args, index, session, event_id)
@@ -211,11 +213,11 @@ class Engine:
 
     # ---------- tool results ----------
 
-    async def check_result(self, result: ToolResult) -> ResultCheck:
+    async def check_result(self, result: ToolResult, owner: UUID | None = None) -> ResultCheck:
         event_id = uuid.uuid4()
         timer = StageTimer()
         try:
-            return await self._check_result(result, event_id, timer)
+            return await self._check_result(result, event_id, timer, owner)
         except Exception as exc:
             decision = await self._fail_closed(
                 result.session_id,
@@ -232,13 +234,11 @@ class Engine:
             )
 
     async def _check_result(
-        self, result: ToolResult, event_id: UUID, timer: StageTimer
+        self, result: ToolResult, event_id: UUID, timer: StageTimer, owner: UUID | None
     ) -> ResultCheck:
         policy = self._require_policy()
         with timer.stage("load_session"):
-            session = await self.store.get_session(result.session_id)
-            if session is None:
-                raise UnknownSessionError(str(result.session_id))
+            session = await self._owned_session(result.session_id, owner)
             call = await self.store.get_call(result.session_id, result.call_event_id)
         spec = policy.tool_spec(result.tool) or UNKNOWN_TOOL_SPEC
         confidentiality = policy.result_confidentiality(result.tool, call.args if call else {})
@@ -297,6 +297,13 @@ class Engine:
         )
 
     # ---------- helpers ----------
+
+    async def _owned_session(self, session_id: UUID, owner: UUID | None) -> SessionState:
+        """Load a session; another key's session is reported as unknown (no oracle)."""
+        session = await self.store.get_session(session_id)
+        if session is None or (session.owner is not None and session.owner != owner):
+            raise UnknownSessionError(str(session_id))
+        return session
 
     def _require_policy(self) -> CompiledPolicy:
         if self.policy is None:

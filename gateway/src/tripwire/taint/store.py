@@ -21,6 +21,7 @@ class SessionState(BaseModel):
     has_untrusted: bool = False
     suspicious: bool = False
     max_confidentiality: Confidentiality = "public"
+    owner: UUID | None = None  # API key that created the session
 
 
 class CallRecord(BaseModel):
@@ -116,12 +117,14 @@ class RedisTaintStore:
         await pipe.execute()
 
     async def create_session(self, state: SessionState) -> None:
-        mapping = {
+        mapping: dict[str, str | int] = {
             "mode": state.mode,
             "untrusted": int(state.has_untrusted),
             "suspicious": int(state.suspicious),
             f"conf:{state.max_confidentiality}": 1,
         }
+        if state.owner is not None:
+            mapping["owner"] = str(state.owner)
         await self._r.hset(self._k(state.session_id, "meta"), mapping=mapping)  # type: ignore[misc]
         await self._touch(state.session_id)
 
@@ -143,6 +146,7 @@ class RedisTaintStore:
             has_untrusted=raw.get("untrusted") == "1",
             suspicious=raw.get("suspicious") == "1",
             max_confidentiality=best,
+            owner=UUID(raw["owner"]) if raw.get("owner") else None,
         )
 
     async def mark_context(
