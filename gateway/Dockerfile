@@ -32,6 +32,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends binutils \
  && find /opt/venv -type f \( -name "*.cpython-*.so" -o -name "*.abi3.so" \) \
       -exec strip --strip-unneeded {} + \
  && apt-get purge -y binutils && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
+# Runtime-only trims (~70 MB): bundled test suites, pip/setuptools, and the
+# phonenumbers geocoding database (Presidio parses numbers, never geocodes them).
+RUN cd /opt/venv/lib/python3.12/site-packages \
+ && find . -type d \( -name tests -o -name test \) -prune -exec rm -rf {} + \
+ && rm -rf pip pip-* setuptools setuptools-* phonenumbers/geodata
 
 # ---- runtime ----
 FROM python:3.12-slim-bookworm AS runtime
