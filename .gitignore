@@ -30,6 +30,9 @@ ml/artifacts/**
 !ml/artifacts/*/
 !ml/artifacts/*/metrics.json
 evals/.cache/
+evals/**/.cache/
+evals/results/cache/
+evals/results/**/llm_cache/
 
 # os / editors
 .DS_Store

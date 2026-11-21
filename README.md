@@ -2,7 +2,7 @@
 
 Open source security gateway for LLM agents: stops prompt injection, tool poisoning and data exfiltration between an agent and its tools.
 
-> Status: early development (Phase 1 of 10: skeleton and infrastructure).
+> **Status: work in progress.** Phase 1 of 10 (skeleton and infrastructure) is complete; nothing here is production ready yet.
 
 ## Quickstart
 
