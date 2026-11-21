@@ -23,6 +23,13 @@ from tripwire.models import (
     Trust,
     max_confidentiality,
 )
+from tripwire.pipeline import secrets as secret_scan
+from tripwire.pipeline.detect import (
+    DetectionPipeline,
+    content_text,
+    raise_confidentiality,
+    redact_secrets_in,
+)
 from tripwire.pipeline.recorder import EventRecord, Recorder, SessionRecord
 from tripwire.policy.compiler import UNKNOWN_TOOL_SPEC, CallFacts, CompiledPolicy
 from tripwire.policy.evaluate import evaluate
@@ -36,6 +43,18 @@ log = structlog.get_logger(__name__)
 ENGINE_ERROR_RULE = "engine-error"
 UNKNOWN_SESSION_RULE = "unknown-session"
 REDACTED = "[REDACTED]"
+
+
+def _redact_value(value: Any) -> Any:
+    """Mask detected secrets inside a value; if none are found, mask the whole value."""
+    if isinstance(value, str):
+        found = secret_scan.find_secrets(value)
+        return secret_scan.redact(value, found) if found else REDACTED
+    if isinstance(value, dict):
+        return {k: _redact_value(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact_value(v) for v in value]
+    return REDACTED
 
 
 class UnknownSessionError(Exception):
@@ -68,6 +87,7 @@ class Engine:
         policy: CompiledPolicy | None,
         default_mode: str = "enforce",
         index_cache_size: int = 2048,
+        detection: DetectionPipeline | None = None,
     ) -> None:
         self.store = store
         self.recorder = recorder
@@ -77,6 +97,7 @@ class Engine:
         # store, which stays the source of truth across workers).
         self._indexes: OrderedDict[UUID, ValueIndex] = OrderedDict()
         self.index_cache_size = index_cache_size
+        self.detection = detection or DetectionPipeline()
 
     async def _value_index(self, session_id: UUID) -> ValueIndex:
         idx = self._indexes.get(session_id)
@@ -151,12 +172,16 @@ class Engine:
         with timer.stage("evaluate"):
             ev = await evaluate(policy, facts, counter)
 
+        with timer.stage("secrets"):
+            arg_detectors = [secret_scan.scan(content_text(call.args))]
+            arg_detectors = [d for d in arg_detectors if d.spans]
+
         computed: Action = ev.action
         redacted: dict[str, Any] | None = None
         if computed == "redact":
             targets = ev.redact_args
             names = set(call.args) if None in targets else {t for t in targets if t is not None}
-            redacted = {k: (REDACTED if k in names else v) for k, v in call.args.items()}
+            redacted = {k: (_redact_value(v) if k in names else v) for k, v in call.args.items()}
 
         enforced = self._enforced(computed, session.mode)
         message = ev.message
@@ -173,7 +198,7 @@ class Engine:
             rule_id=ev.rule_id,
             message=message,
             arg_labels=labelling.arg_labels,
-            detectors=[],
+            detectors=arg_detectors,
             redacted_args=redacted if enforced == "redact" else None,
             latency_ms=0.0,
             approval_id=None,
@@ -193,7 +218,7 @@ class Engine:
                     k: [p.model_dump(mode="json") for p in v]
                     for k, v in labelling.arg_labels.items()
                 },
-                detectors=[],
+                detectors=[d.model_dump(mode="json") for d in arg_detectors],
                 edges=[e.model_dump(mode="json") for e in labelling.edges],
                 latency_ms=timer.total_ms,
                 stage_timings=dict(timer.timings),
@@ -241,14 +266,29 @@ class Engine:
             session = await self._owned_session(result.session_id, owner)
             call = await self.store.get_call(result.session_id, result.call_event_id)
         spec = policy.tool_spec(result.tool) or UNKNOWN_TOOL_SPEC
-        confidentiality = policy.result_confidentiality(result.tool, call.args if call else {})
-        # Phase 3 detectors may raise this to "suspicious".
-        trust: Trust = spec.trust
+        base_conf = policy.result_confidentiality(result.tool, call.args if call else {})
+        defaults = policy.doc.defaults
+
+        analysis = await self.detection.analyze(
+            content_text(result.content),
+            defaults.suspicious_threshold,
+            defaults.classifier_threshold,
+        )
+        timer.timings.update(analysis.timings)
+
+        # Injection-looking content is suspicious whatever tool returned it.
+        trust: Trust = "suspicious" if analysis.suspicious else spec.trust
+        confidentiality = raise_confidentiality(base_conf, analysis.confidentiality_floor())
         label = Provenance(
             source=result.tool, trust=trust, confidentiality=confidentiality, event_id=event_id
         )
         with timer.stage("tag"):
+            # Tag the original content so later exfiltration of a secret still matches,
+            # even though the agent only ever sees the redacted copy.
             tagged = tag_content(result.content, label)
+        content_out = (
+            redact_secrets_in(result.content) if analysis.secrets_found else result.content
+        )
         with timer.stage("persist"):
             await self.store.add_values(result.session_id, tagged)
             await self.store.mark_context(
@@ -258,13 +298,20 @@ class Engine:
                 suspicious=trust == "suspicious",
             )
             enforced = self._enforced("allow", session.mode)
+            message = (
+                f"Suspicious content (injection score {analysis.injection_score:.2f}); "
+                "session marked suspicious."
+                if analysis.suspicious
+                else "Result labelled."
+            )
+            detectors = [d for d in analysis.detectors if d.score > 0 or d.spans]
             decision = Decision(
                 event_id=event_id,
                 action=enforced,
                 rule_id=None,
-                message="Result labelled.",
+                message=message,
                 arg_labels={},
-                detectors=[],
+                detectors=detectors,
                 redacted_args=None,
                 latency_ms=0.0,
                 approval_id=None,
@@ -285,7 +332,7 @@ class Engine:
                         "result": [label.model_dump(mode="json")],
                         "context_confidentiality": ctx_conf,
                     },
-                    detectors=[],
+                    detectors=[d.model_dump(mode="json") for d in detectors],
                     edges=[],
                     latency_ms=timer.total_ms,
                     stage_timings=timer.timings,
@@ -293,7 +340,7 @@ class Engine:
             )
         decision.latency_ms = timer.total_ms
         return ResultCheck(
-            content_redacted=result.content, labels=[label], detectors=[], decision=decision
+            content_redacted=content_out, labels=[label], detectors=detectors, decision=decision
         )
 
     # ---------- helpers ----------

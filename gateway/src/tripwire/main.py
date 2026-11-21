@@ -16,13 +16,39 @@ from tripwire.auth.api_keys import ApiKeyAuthenticator, SqlKeyRepository
 from tripwire.config import Settings, get_settings
 from tripwire.db.session import make_engine, make_sessionmaker
 from tripwire.log_config import configure_logging
+from tripwire.pipeline.classifier import InjectionClassifier
+from tripwire.pipeline.detect import DetectionPipeline
 from tripwire.pipeline.engine import Engine
+from tripwire.pipeline.llm_judge import AnthropicJudge, Judge
+from tripwire.pipeline.pii import PiiDetector
 from tripwire.pipeline.recorder import SqlRecorder
 from tripwire.policy.compiler import CompiledPolicy, compile_policy
 from tripwire.policy.loader import PolicyError, load_policy_file
 from tripwire.taint.store import RedisTaintStore
 
 log = structlog.get_logger(__name__)
+
+
+def build_detection(settings: Settings) -> DetectionPipeline:
+    classifier = InjectionClassifier(
+        settings.tripwire_classifier_dir or None, settings.tripwire_classifier_threads
+    )
+    judge: Judge | None = None
+    if settings.tripwire_llm_judge_enabled:
+        if settings.tripwire_llm_judge_model:
+            judge = AnthropicJudge(
+                settings.tripwire_llm_judge_model,
+                settings.anthropic_api_key.get_secret_value(),
+                settings.tripwire_llm_judge_timeout_s,
+            )
+        else:
+            log.warning(
+                "llm_judge.disabled",
+                reason="TRIPWIRE_LLM_JUDGE_ENABLED is set but TRIPWIRE_LLM_JUDGE_MODEL is empty",
+                effect="gray-zone content is treated as suspicious",
+            )
+    pii = None if settings.tripwire_pii_mode == "off" else PiiDetector(settings.tripwire_pii_mode)
+    return DetectionPipeline(classifier=classifier, judge=judge, pii=pii)
 
 
 def load_active_policy(path: str) -> CompiledPolicy | None:
@@ -53,6 +79,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             recorder=SqlRecorder(app.state.sessionmaker),
             policy=load_active_policy(settings.tripwire_policy_path),
             default_mode=settings.tripwire_mode,
+            detection=build_detection(settings),
         )
         log.info("gateway.startup", version=__version__, mode=settings.tripwire_mode)
         try:

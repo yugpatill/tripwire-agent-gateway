@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import base64 as _b64
+import binascii as _binascii
+import html as _html
 import re
 import unicodedata
+from dataclasses import dataclass as _dataclass
 from typing import Any
+from urllib.parse import unquote as _unquote
 
 # Zero-width and bidi control characters commonly used to hide or split payloads.
 _INVISIBLE = re.compile("[​-‏‪-‮⁠-⁤⁦-⁩﻿­]")
@@ -44,3 +49,145 @@ def flatten_strings(value: Any) -> list[str]:
 
     walk(value)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Detection views: text forms that detectors scan, each mapped back to the
+# original string so reported spans point at what the user actually sees.
+# ---------------------------------------------------------------------------
+
+# Unicode "tag" characters (U+E0000..U+E007F) mirror ASCII and are invisible:
+# used for ASCII smuggling of hidden instructions.
+_TAG_START, _TAG_END = 0xE0000, 0xE007F
+_BASE64_RUN = re.compile(r"(?<![A-Za-z0-9+/=_-])[A-Za-z0-9+/_-]{24,}={0,2}(?![A-Za-z0-9+/=_-])")
+_PCT_RUN = re.compile(r"(?:%[0-9A-Fa-f]{2}[^\s%]*){3,}")
+_HTML_COMMENT = re.compile(r"<!--(.*?)-->", re.S)
+_MAX_DECODED = 20_000
+
+
+@_dataclass(frozen=True, slots=True)
+class View:
+    """A scannable form of the input. `offsets[i]` is the original index of
+    character i; for decoded segments every character maps to the source span."""
+
+    kind: str  # "normalized" | "base64" | "url" | "html_entities" | "tags" | "html_comment"
+    text: str
+    offsets: list[int] | None = None  # per-character map (normalized view)
+    source_span: tuple[int, int] | None = None  # whole-view map (decoded views)
+
+    def span(self, start: int, end: int) -> tuple[int, int]:
+        if self.offsets is not None and self.offsets:
+            s = self.offsets[min(start, len(self.offsets) - 1)]
+            e = self.offsets[min(max(end - 1, 0), len(self.offsets) - 1)] + 1
+            return s, e
+        if self.source_span is not None:
+            return self.source_span
+        return start, end
+
+
+def _normalized_view(text: str) -> View:
+    out: list[str] = []
+    offsets: list[int] = []
+    prev_space = False
+    for i, ch in enumerate(text):
+        if _INVISIBLE.match(ch) or _TAG_START <= ord(ch) <= _TAG_END:
+            continue
+        for c in unicodedata.normalize("NFKC", ch).casefold():
+            if c == "\n":
+                # Keep line breaks: role-marker rules anchor on line starts.
+                while out and out[-1] == " ":
+                    out.pop()
+                    offsets.pop()
+                prev_space = True
+            elif c.isspace():
+                if prev_space:
+                    continue
+                c, prev_space = " ", True
+            else:
+                prev_space = False
+            out.append(c)
+            offsets.append(i)
+    return View("normalized", "".join(out), offsets=offsets)
+
+
+_SPACES = re.compile(r"[^\S\n]+")
+
+
+def normalize_lines(text: str) -> str:
+    """Like `normalize` but keeps line breaks (for detection views)."""
+    text = strip_invisible(unicodedata.normalize("NFKC", text)).casefold()
+    return "\n".join(_SPACES.sub(" ", line).strip() for line in text.splitlines()).strip()
+
+
+def _printable_ratio(s: str) -> float:
+    if not s:
+        return 0.0
+    return sum(ch.isprintable() or ch in "\n\r\t" for ch in s) / len(s)
+
+
+def _decode_base64(run: str) -> str | None:
+    padded = run + "=" * (-len(run) % 4)
+    for decoder in (_b64.b64decode, _b64.urlsafe_b64decode):
+        try:
+            raw = decoder(padded)
+        except (ValueError, _binascii.Error):
+            continue
+        try:
+            s = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            continue
+        # Real text has spaces or punctuation; random IDs/hashes decode to junk.
+        if _printable_ratio(s) > 0.95 and re.search(r"[A-Za-z]{3,}", s):
+            return s
+    return None
+
+
+def detection_views(text: str) -> list[View]:
+    """The normalized view plus every decodable hidden payload, normalized too."""
+    views = [_normalized_view(text)]
+
+    tags = "".join(
+        chr(ord(ch) - _TAG_START)
+        for ch in text
+        if _TAG_START + 0x20 <= ord(ch) <= _TAG_START + 0x7E
+    )
+    if tags.strip():
+        first = next(i for i, ch in enumerate(text) if _TAG_START <= ord(ch) <= _TAG_END)
+        views.append(View("tags", normalize_lines(tags), source_span=(first, len(text))))
+
+    for m in _BASE64_RUN.finditer(text):
+        decoded = _decode_base64(m.group(0))
+        if decoded:
+            views.append(
+                View("base64", normalize_lines(decoded[:_MAX_DECODED]), source_span=m.span())
+            )
+
+    for m in _PCT_RUN.finditer(text):
+        decoded = _unquote(m.group(0))
+        if decoded != m.group(0):
+            views.append(View("url", normalize_lines(decoded[:_MAX_DECODED]), source_span=m.span()))
+
+    if "&" in text and ";" in text:
+        unescaped = _html.unescape(text)
+        if unescaped != text:
+            views.append(
+                View(
+                    "html_entities",
+                    normalize_lines(unescaped[:_MAX_DECODED]),
+                    source_span=(0, len(text)),
+                )
+            )
+
+    for m in _HTML_COMMENT.finditer(text):
+        body = m.group(1).strip()
+        if body:
+            views.append(
+                View("html_comment", normalize_lines(body[:_MAX_DECODED]), source_span=m.span())
+            )
+    return views
+
+
+def count_hidden_chars(text: str) -> tuple[int, int]:
+    """(invisible/bidi control characters, Unicode tag characters)."""
+    tags = sum(1 for ch in text if _TAG_START <= ord(ch) <= _TAG_END)
+    return len(_INVISIBLE.findall(text)), tags

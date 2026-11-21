@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     tripwire_policy_path: str = "policies/demo.yaml"
     tripwire_classifier_dir: str = "models/injection-deberta"
     tripwire_llm_judge_enabled: bool = False
+    tripwire_llm_judge_model: str = ""  # required when the judge is enabled
+    tripwire_llm_judge_timeout_s: float = 5.0
+    tripwire_pii_mode: Literal["patterns", "ner", "off"] = "patterns"
+    tripwire_classifier_threads: int = 1
     tripwire_mode: Literal["enforce", "shadow"] = "enforce"
 
     jwt_secret: SecretStr = SecretStr("change-me")
