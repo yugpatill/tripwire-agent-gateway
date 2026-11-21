@@ -1,0 +1,118 @@
+# Policy for the playground's mock MCP servers (email, files, web, bank, calculator, weather).
+version: 1
+defaults:
+  unknown_tool: require_approval
+  on_engine_error: block
+  classifier_threshold: 0.85
+  suspicious_threshold: 0.5
+
+tools:
+  web__fetch:
+    trust: untrusted
+    confidentiality: public
+    sink: true          # the URL itself can carry data out
+    risk: medium
+  email__read_inbox:
+    trust: untrusted    # anyone can send you an email
+    confidentiality: confidential
+    sink: false
+    risk: low
+  email__send_email:
+    trust: trusted
+    confidentiality: internal
+    sink: true
+    risk: high
+  files__read_file:
+    trust: trusted
+    confidentiality: internal
+    confidentiality_by_path:
+      "*/.ssh/*": secret
+      "*.env": secret
+      "*/secrets/*": secret
+      "*/finance/*": confidential
+    sink: false
+    risk: low
+  files__write_file:
+    trust: trusted
+    confidentiality: internal
+    sink: false
+    risk: medium
+  bank__get_balance:
+    trust: trusted
+    confidentiality: confidential
+    sink: false
+    risk: low
+  bank__transfer:
+    trust: trusted
+    confidentiality: confidential
+    sink: true
+    risk: high
+  calculator__add:
+    trust: untrusted
+    confidentiality: public
+    sink: false
+    risk: low
+  weather__get_forecast:
+    trust: untrusted
+    confidentiality: public
+    sink: false
+    risk: low
+
+rules:
+  - id: no-untrusted-recipient
+    when:
+      tool: email__send_email
+      arg: to
+      label_any: [untrusted, suspicious, untrusted_origin]
+    action: block
+    message: "The recipient address came from untrusted content, not from you."
+
+  - id: no-untrusted-payee
+    when:
+      tool: bank__transfer
+      arg: to_account
+      label_any: [untrusted, suspicious, untrusted_origin]
+    action: block
+    message: "The payee account came from untrusted content, not from you."
+
+  - id: no-secret-exfil-via-url
+    when:
+      tool: web__fetch
+      arg: url
+      context_confidentiality_at_least: secret
+    unless:
+      arg_domain_in: ["docs.company.com", "api.company.com"]
+    action: block
+    message: "Secret data is in context; fetching an outside URL could leak it."
+
+  - id: confidential-to-external
+    when:
+      tool: email__send_email
+      arg: to
+      context_confidentiality_at_least: confidential
+    unless:
+      arg_domain_in: ["@company.com"]
+    action: require_approval
+    message: "Confidential data is in context and the recipient is outside the company."
+
+  - id: suspicious-session-sinks
+    when:
+      sink: true
+      session_has: suspicious
+    action: require_approval
+    message: "This session saw content that looks like a prompt injection; outbound actions need approval."
+
+  - id: transfer-rate-limit
+    when:
+      tool: bank__transfer
+    limit: { max_calls: 3, per: session }
+    action: block
+    message: "More than 3 transfers in one session."
+
+  - id: untrusted-data-in-email-body
+    when:
+      tool: email__send_email
+      arg: body
+      label_any: [untrusted, suspicious]
+    action: log_only
+    message: "Email body quotes untrusted content."

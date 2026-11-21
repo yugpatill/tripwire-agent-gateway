@@ -1,0 +1,32 @@
+# Generic starting policy for a new deployment. Describe your own tools under `tools`,
+# run in shadow mode for a week, review, then enforce. See docs/policy-reference.md.
+version: 1
+defaults:
+  unknown_tool: require_approval
+  on_engine_error: block
+  classifier_threshold: 0.85
+  suspicious_threshold: 0.5
+
+tools: {}
+
+rules:
+  - id: no-untrusted-data-to-sinks
+    when:
+      sink: true
+      label_any: [untrusted, suspicious, untrusted_origin]
+    action: block
+    message: "Data from an untrusted source is being sent to a tool that can move it out."
+
+  - id: suspicious-session-sinks
+    when:
+      sink: true
+      session_has: suspicious
+    action: require_approval
+    message: "This session saw content that looks like a prompt injection; a human must approve outbound actions."
+
+  - id: secret-context-sinks
+    when:
+      sink: true
+      context_confidentiality_at_least: secret
+    action: require_approval
+    message: "Secret data is in the agent's context; outbound actions need approval."
