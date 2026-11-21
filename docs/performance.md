@@ -45,3 +45,52 @@ Profiling showed the baseline spent each call on two things:
 Session values are append-only, so the engine now keeps an in-process LRU (2048 sessions) of a `ValueIndex` per session. On each call it asks Redis only for the list length and fetches just the new entries (`LRANGE start -1`). Redis remains the source of truth, so multiple workers stay correct. Each worker's cache simply catches up.
 
 Not needed yet: substring matching (`_text_match`) is about 1.2 ms per call for 5 args over 1 MB, which is linear in session size. If sessions grow far beyond this (for example 100 results of 500 KB), the next step is an n-gram prefilter or an Aho-Corasick automaton over arg needles.
+
+## Detection pipeline latency (Phase 3)
+
+Script: [`gateway/scripts/bench_detectors.py`](../gateway/scripts/bench_detectors.py). x86 numbers come from the manual [`bench-classifier`](../.github/workflows/bench-classifier.yml) workflow on a GitHub-hosted runner: Intel Xeon 6975P-C, 4 vCPU, AVX-512 VNNI. Inputs are built from the benign corpus (web pages, emails, API JSON, tickets).
+
+Classifier numbers use **untrained probes** (`ml/scripts/latency_probe.py`): real architecture and int8 dynamic quantization, random weights. Latency does not depend on the weights; detection quality does, and is measured in Phase 4.
+
+### Detectors without the classifier (x86, p50 / p95)
+
+| Detector | 2 KB | 50 KB |
+|---|---|---|
+| heuristics (incl. normalization and decoding) | 1.36 / 1.39 ms | 35 / 36 ms |
+| secrets | 0.23 / 0.24 ms | 6.8 / 6.9 ms |
+| PII (Presidio, patterns mode) | 2.5 / 2.5 ms | 67 / 99 ms |
+| **pipeline without classifier** | **4.8 / 5.3 ms** | **111 / 145 ms** |
+| pipeline with classifier, injected input (early exit) | 5.3 / 5.6 ms | 109 / 113 ms |
+
+The heuristics target (< 2 ms on 2 KB) is met.
+
+PII on 50 KB dropped from about 1.35 s (stock Presidio: full spaCy pipeline, libphonenumber matcher, lemma context enhancer) to about 67 ms. See `pipeline/pii.py` for the three changes.
+
+### Classifier alone, untrained int8 probes (p50 / p95)
+
+| Model (int8 size) | Threads | x86 2 KB | x86 50 KB* | Apple M3 2 KB |
+|---|---|---|---|---|
+| DeBERTa-v3-base (243 MB) | 1 | 944 / 983 ms | 4.07 / 4.13 s | 1076 / 1184 ms |
+| DeBERTa-v3-base | 2 | 592 / 620 ms | 2.49 / 2.61 s | 597 / 615 ms |
+| DeBERTa-v3-small (172 MB) | 1 | 419 / 432 ms | 1.72 / 1.73 s | 575 / 753 ms |
+| DeBERTa-v3-small | 2 | 275 / 278 ms | 1.11 / 1.12 s | 314 / 454 ms |
+| DeBERTa-v3-small | 4 | 264 / 274 ms | 1.08 / 1.09 s | |
+| DeBERTa-v3-xsmall (87 MB) | 2 | 251 / 255 ms | 1.04 / 1.04 s | |
+| DeBERTa-v3-xsmall | 4 | 262 / 269 ms | 1.09 / 1.11 s | |
+| MiniLM-L12-H384 (34 MB) | 2 | 76 / 78 ms | 422 / 429 ms | |
+| **MiniLM-L6-H384 (23 MB)** | 2 | **39 / 40 ms** | 221 / 222 ms | |
+
+\* 50 KB is about 35 windows. Since the window cap it classifies 8 (first 4 and last 4), plus at most 4 focus windows in the full pipeline. The base rows were measured before the focus cap, so they are 8-window numbers.
+
+**Targets: classifier p95 < 50 ms on 2 KB and < 150 ms on 50 KB. Neither is met by any DeBERTa-v3 size. MiniLM-L6 (a BERT architecture whose attention ONNX Runtime fuses) meets the 2 KB target; nothing measured meets 150 ms on 50 KB with 8 windows (MiniLM-L6 would need 5 or fewer).** Detection quality of MiniLM against DeBERTa is unknown until Phase 4 trains them. A 2 KB input is about 550 tokens; DeBERTa-v3 costs about 0.5 ms per token on 2 x86 threads. Its disentangled relative-position attention dominates at this length: xsmall is barely faster than small despite a quarter of the matmul work, and 4 threads do not help over 2.
+
+What changed in Phase 3 to bound the cost:
+- **Early exit**: skip the classifier when heuristics already reach `classifier_threshold`.
+- **Window cap**: at most 12 windows per input (first 4, last 4, and up to 4 around the strongest weak signals).
+- **`TRIPWIRE_CLASSIFIER_THREADS`**: default 2.
+
+Options for the model decision are in the Phase 3 review.
+
+### Apple M3 note
+
+PyTorch on macOS uses Accelerate (the AMX coprocessor) and ran DeBERTa-v3-base fp32 at 426 ms per 512 tokens. ONNX Runtime cannot use AMX and took 1,200 ms in fp32 and 573 ms in int8. Linux servers have no AMX, so the x86 runner numbers are the ones to plan with.

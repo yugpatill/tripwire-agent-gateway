@@ -114,6 +114,8 @@ The SDK adapter package (`tripwire-guard`, in `gateway/sdk/`) keeps heavy framew
 | onnx | `>=1.17` |
 | evaluate, pandas, matplotlib | latest |
 
+Default classifier: **`microsoft/deberta-v3-small`** (int8 ONNX about 172 MB), chosen for latency and image size. `microsoft/deberta-v3-base` (about 243 MB) remains an option. Milestone 4 trains both and reports accuracy against latency for each before the default is final.
+
 Output contract: `ml/artifacts/injection-deberta/` containing `model.int8.onnx`, `tokenizer.json`, `config.json` (with `max_length`, `threshold`, `labels`) and `metrics.json`. The gateway reads only this folder (path from `TRIPWIRE_CLASSIFIER_DIR`), copied into the image at build time or downloaded from a GitHub Release asset.
 
 ### 4.4 `evals/` (benchmarks, never deployed)
@@ -286,8 +288,8 @@ Rules evaluate in file order; the first `block` wins, then `require_approval`, t
 |---|---|---|
 | 1 | Skeleton and infra: repo layout, compose stack, CI, FastAPI app factory, schema migration, Next.js shell | `docker compose up` starts everything; `/healthz` ok; CI green |
 | 2 | Policy engine and taint tracking | Untrusted recipient from a fetched page is blocked by `no-untrusted-recipient`; the user's own recipient is allowed; 40+ unit tests |
-| 3 | Detection pipeline: normalization, heuristics, secrets, Presidio PII, ONNX classifier wrapper, gated LLM judge | Detector unit tests; heuristics < 2 ms and classifier < 50 ms p95 on a 2 KB input |
-| 4 | Classifier training (`ml/`): dataset with held-out attack family, DeBERTa fine-tune, threshold at 1% FPR, int8 ONNX export | Artifact folder loads in the gateway; `metrics.json` published |
+| 3 | Detection pipeline: normalization, heuristics, secrets, Presidio PII, ONNX classifier wrapper, gated LLM judge | Detector unit tests; heuristics < 2 ms and classifier < 50 ms p95 on a 2 KB input; classifier < 150 ms p95 on 50 KB; runtime image < 700 MB with the classifier |
+| 4 | Classifier training (`ml/`): dataset with held-out attack family, DeBERTa-v3 small **and** base fine-tunes, threshold at 1% FPR, int8 ONNX export | Artifact folder loads in the gateway; `metrics.json` published; accuracy vs latency reported for small and base |
 | 5 | MCP proxy (SDK v2), manifest security, approvals | Namespaced tools; poisoned tool quarantined; rug pull blocked; approval granted via API completes the held call |
 | 6 | `tripwire-guard` SDK adapters | Examples run end to end against a local gateway |
 | 7 | Playground backend: 6 preset scenarios, dual run, custom attacks, cost controls | Every preset succeeds unprotected and is stopped protected, verified automatically |
