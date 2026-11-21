@@ -1,0 +1,43 @@
+name: bench-classifier
+
+# Manual only: measures detector latency on a GitHub-hosted x86-64 Linux runner
+# with untrained DeBERTa-v3 int8 probes (real architecture, random weights).
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: "Space-separated base models"
+        default: "microsoft/deberta-v3-small microsoft/deberta-v3-base"
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - name: CPU info
+        run: |
+          lscpu | grep -E "Model name|^CPU\(s\)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "SIMD: $(grep -o -w -E 'avx2|avx512f|avx512_vnni|avx_vnni' /proc/cpuinfo | sort -u | tr '\n' ' ')" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Export probes
+        working-directory: ml
+        run: |
+          uv sync --frozen
+          for m in ${{ inputs.models }}; do uv run python scripts/latency_probe.py --base "$m"; done
+      - name: Benchmark
+        working-directory: gateway
+        run: |
+          uv sync --frozen
+          for m in ${{ inputs.models }}; do
+            dir="../ml/artifacts/latency-probe-${m##*/}"
+            for t in 1 2; do
+              echo "### ${m##*/}, threads=$t" | tee -a "$GITHUB_STEP_SUMMARY"
+              TRIPWIRE_CLASSIFIER_DIR="$dir" uv run python -u scripts/bench_detectors.py --threads "$t" \
+                | grep -E "^\||CPU" | tee -a "$GITHUB_STEP_SUMMARY"
+            done
+            ls -l "$dir/model.int8.onnx" | awk '{printf "model.int8.onnx: %.0f MB\n\n", $5/1e6}' | tee -a "$GITHUB_STEP_SUMMARY"
+          done
