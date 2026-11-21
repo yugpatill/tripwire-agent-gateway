@@ -26,6 +26,12 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-install-project
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --no-editable
+# Strip debug symbols from Python extension modules (~180 MB, mostly spaCy/thinc).
+# Vendored *.libs folders are left alone.
+RUN apt-get update && apt-get install -y --no-install-recommends binutils \
+ && find /opt/venv -type f \( -name "*.cpython-*.so" -o -name "*.abi3.so" \) \
+      -exec strip --strip-unneeded {} + \
+ && apt-get purge -y binutils && apt-get autoremove -y && rm -rf /var/lib/apt/lists/*
 
 # ---- runtime ----
 FROM python:3.12-slim-bookworm AS runtime
