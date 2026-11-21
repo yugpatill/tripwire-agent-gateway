@@ -38,3 +38,39 @@ jobs:
       - run: uv run mypy src
       - run: uv run alembic upgrade head && uv run alembic check
       - run: uv run pytest -q --cov=tripwire --cov-report=term
+
+  image:
+    runs-on: ubuntu-latest
+    env:
+      MAX_IMAGE_BYTES: "900000000" # 900 MB (decimal, as reported by `docker image ls`)
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: gateway
+          target: runtime
+          tags: tripwire-gateway:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test image (non-root, imports, no dev deps)
+        run: |
+          docker run --rm --entrypoint sh tripwire-gateway:ci -c '
+            test "$(id -u)" != "0" &&
+            python -c "import tripwire.main" &&
+            ! python -c "import pytest" 2>/dev/null'
+      - name: Enforce image size budget
+        # Gate on the larger of the image store's reported size and the unpacked
+        # filesystem size, so the check means the same thing on any Docker storage driver.
+        run: |
+          reported=$(docker image inspect tripwire-gateway:ci --format '{{.Size}}')
+          unpacked=$(docker run --rm --user root --entrypoint sh tripwire-gateway:ci -c 'du -sxb / 2>/dev/null | cut -f1')
+          size=$(( reported > unpacked ? reported : unpacked ))
+          echo "reported=${reported} unpacked=${unpacked} gated=${size} limit=${MAX_IMAGE_BYTES}"
+          echo "### Gateway runtime image: $((size / 1000000)) MB / $((MAX_IMAGE_BYTES / 1000000)) MB" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$size" -gt "$MAX_IMAGE_BYTES" ]; then
+            echo "::error::runtime image is ${size} bytes, exceeds ${MAX_IMAGE_BYTES}"
+            exit 1
+          fi
