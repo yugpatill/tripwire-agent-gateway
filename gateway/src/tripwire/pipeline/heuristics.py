@@ -326,7 +326,10 @@ def score_text(text: str) -> DetectorResult:
         hit("markdown-image-exfil", weight, span, why)
 
     score = round(_local_score(occurrences, len(text)), 4)
-    spans = sorted({s for h in hits.values() for s in h.spans})
+    # Spans ordered strongest rule first (the classifier uses them as focus hints).
+    spans: list[tuple[int, int]] = []
+    for h in sorted(hits.values(), key=lambda h: -h.weight):
+        spans.extend(sp for sp in h.spans if sp not in spans)
     reason = ", ".join(
         f"{rid}({h.weight:.2f}{'@' + '/'.join(sorted(h.where - {'normalized'})) if h.where - {'normalized'} else ''})"
         for rid, h in sorted(hits.items(), key=lambda kv: -kv[1].weight)

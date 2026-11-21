@@ -32,6 +32,9 @@ OVERLAP_TOKENS = 64
 # window that overlaps a weak heuristic signal (see docs/limitations.md).
 MAX_FULL_WINDOWS = 8
 HEAD_TAIL_WINDOWS = 4
+# At most this many extra "focus" windows, taken from the strongest signals first,
+# so scattered weak signals in a long benign document cannot pull in every window.
+MAX_FOCUS_WINDOWS = 4
 # A "focus" span longer than this fraction of the text (e.g. a whole-document
 # invisible-character signal) does not localize anything and is ignored.
 MAX_FOCUS_FRACTION = 0.5
@@ -138,15 +141,23 @@ class InjectionClassifier:
         text_len: int,
     ) -> list[int]:
         """Indices of windows to classify: all of them for short inputs; for long
-        ones the first and last HEAD_TAIL_WINDOWS plus windows overlapping a focus span."""
+        ones the first and last HEAD_TAIL_WINDOWS plus up to MAX_FOCUS_WINDOWS windows
+        overlapping focus spans (strongest first). At most 12 windows in total."""
         n = len(char_ranges)
         if n <= MAX_FULL_WINDOWS:
             return list(range(n))
         chosen = set(range(HEAD_TAIL_WINDOWS)) | set(range(n - HEAD_TAIL_WINDOWS, n))
+        extra = 0
+        # `focus` is ordered strongest signal first.
         for fs, fe in focus:
+            if extra >= MAX_FOCUS_WINDOWS:
+                break
             if fe - fs > MAX_FOCUS_FRACTION * text_len:
                 continue
-            chosen.update(i for i, (s, e) in enumerate(char_ranges) if s < fe and fs < e)
+            for i, (s, e) in enumerate(char_ranges):
+                if s < fe and fs < e and i not in chosen and extra < MAX_FOCUS_WINDOWS:
+                    chosen.add(i)
+                    extra += 1
         return sorted(chosen)
 
     def score(self, text: str, focus: list[tuple[int, int]] | None = None) -> DetectorResult:

@@ -8,6 +8,9 @@ on:
       models:
         description: "Space-separated base models"
         default: "microsoft/deberta-v3-small microsoft/deberta-v3-base"
+      threads:
+        description: "Space-separated intra-op thread counts"
+        default: "1 2"
 
 jobs:
   bench:
@@ -34,7 +37,7 @@ jobs:
           uv sync --frozen
           for m in ${{ inputs.models }}; do
             dir="../ml/artifacts/latency-probe-${m##*/}"
-            for t in 1 2; do
+            for t in ${{ inputs.threads }}; do
               echo "### ${m##*/}, threads=$t" | tee -a "$GITHUB_STEP_SUMMARY"
               TRIPWIRE_CLASSIFIER_DIR="$dir" uv run python -u scripts/bench_detectors.py --threads "$t" \
                 | grep -E "^\||CPU" | tee -a "$GITHUB_STEP_SUMMARY"
