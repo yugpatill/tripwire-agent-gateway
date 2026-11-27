@@ -1,0 +1,87 @@
+name: bench-api
+
+# Manual only: p50/p95 of POST /v1/check/result against a real gateway (uvicorn,
+# Postgres, Redis) on a GitHub-hosted x86-64 runner, with the published classifier,
+# for each detection.combine setting and with the shadow classifier on.
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_url:
+        description: "Classifier release tarball"
+        default: "https://github.com/yugpatill/tripwire-agent-gateway/releases/download/classifier-minilm-l6-v1/injection-minilm-l6-v1.tar.gz"
+      artifact_sha256:
+        description: "SHA-256 of artifact_url"
+        default: "e6a757991957c35f268ea998c40aa9a6ff22cea80bca224ad53f4e54c5fca719"
+      variants:
+        description: "Space-separated: combine[+shadow]"
+        default: "corroborated either corroborated+shadow"
+
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tripwire
+          POSTGRES_PASSWORD: tripwire
+          POSTGRES_DB: tripwire
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tripwire" --health-interval 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://tripwire:tripwire@localhost:5432/tripwire
+      REDIS_URL: redis://localhost:6379/0
+      TRIPWIRE_CLASSIFIER_DIR: ${{ github.workspace }}/classifier
+      TRIPWIRE_CLASSIFIER_THREADS: "2"
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - name: CPU info
+        run: |
+          lscpu | grep -E "Model name|^CPU\(s\)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "SIMD: $(grep -o -w -E 'avx2|avx512f|avx512_vnni|avx_vnni' /proc/cpuinfo | sort -u | tr '\n' ' ')" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Download classifier
+        env:
+          URL: ${{ inputs.artifact_url }}
+          SHA: ${{ inputs.artifact_sha256 }}
+        run: |
+          curl -fsSL "$URL" -o /tmp/artifact.tar.gz
+          echo "$SHA  /tmp/artifact.tar.gz" | sha256sum -c -
+          mkdir -p "$TRIPWIRE_CLASSIFIER_DIR"
+          tar -xzf /tmp/artifact.tar.gz -C "$TRIPWIRE_CLASSIFIER_DIR" --strip-components=1
+      - run: uv sync --frozen
+      - run: uv run alembic upgrade head
+      - name: Benchmark /v1/check/result
+        run: |
+          export TRIPWIRE_API_KEY=$(uv run tripwire keys create --name bench | grep -oE 'tw_[A-Za-z0-9_-]+')
+          test -n "$TRIPWIRE_API_KEY"
+          for v in ${{ inputs.variants }}; do
+            combine=${v%%+*}
+            shadow=false; [ "$v" != "$combine" ] && shadow=true
+            sed -e "s/combine: corroborated/combine: $combine/" \
+                -e "s/classifier_shadow: false/classifier_shadow: $shadow/" \
+                policies/demo.yaml > "/tmp/policy-$v.yaml"
+            grep -q "combine: $combine" "/tmp/policy-$v.yaml"
+            TRIPWIRE_POLICY_PATH="/tmp/policy-$v.yaml" uv run uvicorn tripwire.main:app \
+              --host 127.0.0.1 --port 8000 --log-level warning > "/tmp/gateway-$v.log" 2>&1 &
+            pid=$!
+            for i in $(seq 1 60); do curl -fs http://127.0.0.1:8000/readyz >/dev/null && break; sleep 1; done
+            grep -q classifier.loaded "/tmp/gateway-$v.log"
+            uv run python -u scripts/bench_check_result.py --label "combine=$combine, shadow=$shadow" \
+              | tee -a "$GITHUB_STEP_SUMMARY"
+            kill $pid; wait $pid || true
+            echo "shadow log lines: $(grep -c '"classifier.shadow"' "/tmp/gateway-$v.log" || true), dropped: $(grep -c shadow_dropped "/tmp/gateway-$v.log" || true)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
