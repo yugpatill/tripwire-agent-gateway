@@ -146,6 +146,27 @@ class Engine:
         )
         return session_id
 
+    async def add_user_prompt(self, session_id: UUID, text: str, owner: UUID | None = None) -> bool:
+        """Add a user turn to an existing session (trusted, for instruction origin).
+
+        Only the client application may call this (the model cannot set headers or
+        call the REST API). Returns False when the same text is already known.
+        """
+        await self._owned_session(session_id, owner)
+        text = text.strip()
+        if not text:
+            return False
+        label = Provenance(
+            source=USER_SOURCE, trust="trusted", confidentiality="internal", event_id=uuid.uuid4()
+        )
+        tagged = tag_text(text, label)
+        index = await self._value_index(session_id)
+        if tagged.value in index.prompt_texts:
+            return False
+        await self.store.add_values(session_id, [tagged])
+        log.info("session.user_prompt_added", session_id=str(session_id), chars=len(text))
+        return True
+
     # ---------- tool calls ----------
 
     async def check_call(self, call: ToolCall, owner: UUID | None = None) -> Decision:
@@ -166,7 +187,13 @@ class Engine:
             session = await self._owned_session(call.session_id, owner)
             index = await self._value_index(call.session_id)
         with timer.stage("propagate"):
-            labelling = label_args(call.args, index, session, event_id)
+            labelling = label_args(
+                call.args,
+                index,
+                session,
+                event_id,
+                origin_without_prompt=policy.doc.defaults.instruction_origin == "strict",
+            )
         spec = policy.tool_spec(call.tool)
         facts = CallFacts(
             tool=call.tool,

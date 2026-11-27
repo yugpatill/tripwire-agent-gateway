@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from tripwire.models import Action, Confidentiality, Trust
 
@@ -19,6 +19,21 @@ class PolicyDefaults(_Strict):
     on_engine_error: Literal["block", "require_approval"] = "block"
     classifier_threshold: float = Field(default=0.85, ge=0.0, le=1.0)
     suspicious_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    # Instruction origin for sessions with no known user prompt (MCP clients usually
+    # send none). strict: an entity from no known source, once untrusted content is in
+    # context, is `untrusted_origin`. off: skip that label (value matching still taints
+    # entities copied from untrusted content). See docs/mcp.md.
+    instruction_origin: Literal["strict", "off"] = "strict"
+
+    @field_validator("instruction_origin", mode="before")
+    @classmethod
+    def _yaml_off(cls, v: object) -> object:
+        # YAML 1.1 reads an unquoted `off` as false (and `on` as true).
+        if v is False:
+            return "off"
+        if v is True:
+            return "strict"
+        return v
 
     @model_validator(mode="after")
     def _thresholds_ordered(self) -> PolicyDefaults:

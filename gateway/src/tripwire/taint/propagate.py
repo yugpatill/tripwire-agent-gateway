@@ -14,6 +14,12 @@ Three mechanisms (docs/design.md section 1):
    the same entity. Entities that come from no known source while untrusted content
    is in context are labelled ``untrusted_origin``: the model likely got them from
    an injection, possibly paraphrased.
+
+   When no user prompt is known for the session (typical in MCP mode, where the
+   client never sends one), the policy's ``defaults.instruction_origin`` decides:
+   ``strict`` (default) keeps labelling unknown entities ``untrusted_origin``
+   once untrusted content is in context; ``off`` skips that label. Value matching
+   is unaffected, so an entity copied from untrusted content is tainted either way.
 """
 
 from __future__ import annotations
@@ -54,13 +60,19 @@ class ValueIndex:
     """Session values plus an entity -> values index. Append-only, so it can be
     cached per session and extended incrementally as new results arrive."""
 
-    __slots__ = ("by_entity", "prompt_entities", "values")
+    __slots__ = ("by_entity", "prompt_entities", "prompt_texts", "values")
 
     def __init__(self, values: Iterable[TaggedValue] = ()) -> None:
         self.values: list[TaggedValue] = []
         self.by_entity: dict[str, list[TaggedValue]] = {}
         self.prompt_entities: set[str] = set()
+        self.prompt_texts: set[str] = set()
         self.extend(values)
+
+    @property
+    def prompt_known(self) -> bool:
+        """At least one user prompt (possibly without entities) is in the session."""
+        return bool(self.prompt_texts)
 
     def __len__(self) -> int:
         return len(self.values)
@@ -72,6 +84,7 @@ class ValueIndex:
                 self.by_entity.setdefault(key, []).append(tv)
             if tv.provenance.source == USER_SOURCE:
                 self.prompt_entities.update(tv.entities)
+                self.prompt_texts.add(tv.value)
 
 
 @dataclass(slots=True)
@@ -135,11 +148,14 @@ def label_args(
     index: ValueIndex,
     session: SessionState,
     to_event: UUID,
+    origin_without_prompt: bool = True,
 ) -> ArgLabelling:
+    """`origin_without_prompt`: apply instruction origin when no prompt is known."""
     out = ArgLabelling()
     values = index.values
     by_entity = index.by_entity
     prompt_entities = index.prompt_entities
+    check_origin = session.has_untrusted and (index.prompt_known or origin_without_prompt)
 
     for name, value in args.items():
         leaves = [leaf[:MAX_LEAF_CHARS] for leaf in flatten_strings(value)]
@@ -169,7 +185,7 @@ def label_args(
                         add(tv.provenance, tv.value, "exact")
                     elif len(tv.normalized) >= MIN_TEXT_MATCH and tv.normalized in ent_norm:
                         add(tv.provenance, tv.value, "normalized")
-                if not sources and session.has_untrusted:
+                if not sources and check_origin:
                     add(
                         Provenance(
                             source=UNKNOWN_SOURCE,
