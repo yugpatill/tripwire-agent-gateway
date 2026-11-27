@@ -7,13 +7,13 @@ on:
   workflow_dispatch:
     inputs:
       models:
-        description: "Space-separated base models"
+        description: "Space-separated base models for untrained probes (empty: none)"
         default: "microsoft/deberta-v3-small microsoft/deberta-v3-base"
       threads:
         description: "Space-separated intra-op thread counts"
         default: "1 2"
       artifact_url:
-        description: "Release tarball of a trained artifact (skips the probes when set)"
+        description: "Release tarball of a trained artifact (benchmarked first, on the same runner as the probes)"
         default: ""
       artifact_sha256:
         description: "SHA-256 of artifact_url (required with it)"
@@ -56,13 +56,13 @@ jobs:
           done
           ls -l ../ml/artifacts/release/model.int8.onnx | awk '{printf "model.int8.onnx: %.0f MB\n\n", $5/1e6}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Export probes
-        if: inputs.artifact_url == ''
+        if: inputs.models != ''
         working-directory: ml
         run: |
           uv sync --frozen
           for m in ${{ inputs.models }}; do uv run python scripts/latency_probe.py --base "$m"; done
       - name: Benchmark probes
-        if: inputs.artifact_url == ''
+        if: inputs.models != ''
         working-directory: gateway
         run: |
           uv sync --frozen

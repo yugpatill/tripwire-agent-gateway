@@ -89,8 +89,13 @@ def main() -> None:
         ("pii (presidio, patterns mode)", pii.scan),
     ]
     if clf.available:
-        model_name = (clf.model_dir.name if clf.model_dir else "?").replace("latency-probe-", "")
-        rows.append((f"classifier ({model_name} int8, untrained probe)", clf.score))
+        dir_name = clf.model_dir.name if clf.model_dir else "?"
+        if dir_name.startswith("latency-probe-"):
+            label = f"{dir_name.removeprefix('latency-probe-')} int8, untrained probe"
+        else:
+            cfg = json.loads((clf.model_dir / "config.json").read_text()) if clf.model_dir else {}
+            label = f"{cfg.get('base_model', dir_name)} int8, trained"
+        rows.append((f"classifier ({label})", clf.score))
     rows.append(
         ("**pipeline without classifier**", lambda t: asyncio.run(pipe_h.analyze(t, 0.5, 0.85)))
     )
