@@ -115,6 +115,8 @@ class InjectionClassifier:
             import onnxruntime as ort
             from tokenizers import Tokenizer
 
+            # Tool outputs are sensitive; never let the runtime emit usage telemetry.
+            ort.disable_telemetry_events()
             self.config = _load_config(d / CONFIG_FILE)
             opts = ort.SessionOptions()
             opts.intra_op_num_threads = threads

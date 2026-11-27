@@ -1,6 +1,22 @@
 # syntax=docker/dockerfile:1.7
 # Tripwire gateway image. Targets: `dev` (hot reload, dev deps) and `runtime` (default, non-root).
 
+# Default injection classifier: GitHub Release asset, verified by SHA-256 (ml/README.md).
+# Override both build args to bake in another artifact, e.g. DeBERTa-v3-small.
+ARG CLASSIFIER_URL=https://github.com/yugpatill/tripwire-agent-gateway/releases/download/classifier-minilm-l6-v1/injection-minilm-l6-v1.tar.gz
+ARG CLASSIFIER_SHA256=e6a757991957c35f268ea998c40aa9a6ff22cea80bca224ad53f4e54c5fca719
+
+# ---- classifier: download, verify and unpack the artifact folder ----
+FROM python:3.12-slim-bookworm AS classifier
+ARG CLASSIFIER_URL
+ARG CLASSIFIER_SHA256
+ADD --checksum=sha256:${CLASSIFIER_SHA256} ${CLASSIFIER_URL} /tmp/classifier.tar.gz
+RUN mkdir -p /models/injection-classifier \
+ && tar -xzf /tmp/classifier.tar.gz -C /models/injection-classifier --strip-components=1 \
+ && for f in model.int8.onnx tokenizer.json config.json; do \
+      test -s "/models/injection-classifier/$f" || { echo "classifier artifact missing $f" >&2; exit 1; }; \
+    done
+
 FROM python:3.12-slim-bookworm AS base
 COPY --from=ghcr.io/astral-sh/uv:0.12 /uv /uvx /usr/local/bin/
 ENV UV_COMPILE_BYTECODE=1 \
@@ -17,6 +33,8 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-install-project
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen
+COPY --from=classifier /models/injection-classifier /app/models/injection-classifier
+ENV TRIPWIRE_CLASSIFIER_DIR=/app/models/injection-classifier
 EXPOSE 8000
 CMD ["sh", "-c", "alembic upgrade head && uvicorn tripwire.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir src"]
 
@@ -47,6 +65,8 @@ COPY --from=build /opt/venv /opt/venv
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY policies ./policies
+COPY --from=classifier /models/injection-classifier /app/models/injection-classifier
+ENV TRIPWIRE_CLASSIFIER_DIR=/app/models/injection-classifier
 USER tripwire
 EXPOSE 8000
 HEALTHCHECK --interval=15s --timeout=3s --retries=5 \
