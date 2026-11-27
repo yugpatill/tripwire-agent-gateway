@@ -51,12 +51,13 @@ Numbers and method: [detection.md](detection.md).
 ## MCP proxy
 
 1. **Only text is vetted.** Images, audio and embedded resources in tool results are replaced by a placeholder; output schemas and structured content are not forwarded. Upstreams that rely on structured output lose it through the proxy.
-2. **Default session is per API key.** Without `X-Tripwire-Session`, all MCP traffic of one key shares a taint session (renewed on use, replaced after 1 h idle). Two concurrent runs on one key taint each other (stricter, never looser); give each run its own session or key for isolation.
+2. **Session scope is a per-key trade-off** ([mcp.md](mcp.md#sessions)). `key` scope shares one taint session across everything a key does: with several end users, one user's taint blocks another (stricter), and one user's prompt entities count as user-given in another user's session (looser). It is for single-user keys only and refused in production unless forced. `connection` scope gives a client that reconnects a clean taint context. `header` scope is the safe choice for multi-user keys, but every client must send `X-Tripwire-Session`.
 3. **The manifest scan reads descriptions, not behaviour.** A server that returns harmless descriptions but malicious tool *results* is handled by result scanning and taint rules, not by pinning. A server can also serve different descriptions to different clients; Tripwire pins what it is shown.
 4. **Shadowing by name is coarse.** Levenshtein distance < 3 on bare names flags legitimate look-alikes across servers (for example `search` on two servers) for review; first seen wins, so a malicious server that registers first is not flagged by name.
 5. **A changed tool stays blocked until reviewed**, even if the server reverts to the approved description; approving a review re-pins exactly the reviewed hash.
 6. **Held calls need a client that waits.** The proxy holds a call up to 120 s and sends progress notifications every 5 s; clients with shorter request timeouts that ignore progress will give up first (the operator's later decision then has no effect).
 7. **Tool lists are fetched on every tools/list** (one request per upstream). With many upstreams this adds latency to listing; an unreachable upstream simply lists no tools.
+8. **Without a user prompt, instruction origin is all or nothing.** MCP clients do not send the user's prompt. With `instruction_origin: strict` (default), an address the user typed in their client is blocked once untrusted content is in context; with `off`, a paraphrased or reassembled attacker address is no longer caught (a copied one still is). Sending `X-Tripwire-User-Prompt` avoids both.
 
 ## Attacks within trusted tools
 

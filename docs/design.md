@@ -246,6 +246,7 @@ Orderings: trust `trusted < untrusted < untrusted_origin < suspicious`; confiden
 | Method | Path | Request | Response |
 |---|---|---|---|
 | POST | /sessions | `{agent_name, user_prompt, mode: "enforce"\|"shadow"}` | `{session_id}` (stores prompt entities for instruction origin) |
+| POST | /sessions/{id}/prompts | `{text}` | `{added}`: adds a user turn (multi-turn agents, SDK) |
 | POST | /check/call | `ToolCall` | `Decision` |
 | POST | /check/result | `ToolResult` | `{content_redacted, labels, detectors, decision}` |
 | POST | /mcp | MCP Streamable HTTP (agent key) | MCP protocol (proxy mode); see [mcp.md](mcp.md) |
@@ -266,7 +267,7 @@ Orderings: trust `trusted < untrusted < untrusted_origin < suspicious`; confiden
 | WS | /stream | operator key in `Authorization` (Phase 5); session and console channels with browser auth come with the web app | JSON events `{type, approval}` (`approval.created`, `approval.decided`) |
 | GET | /healthz, /readyz, /metrics (Prometheus) | | |
 
-**Auth.** Agents send `Authorization: Bearer tw_<prefix>_<secret>`; keys are argon2id-hashed in `api_keys`, created with `tripwire keys create --name <agent> [--role operator]`, and a session is bound to the key that created it. Keys have a role: `agent` keys use sessions, checks and `/mcp`; `operator` keys can also decide approvals and review tools, so an agent can never approve its own held calls. The console uses a JWT in an httpOnly cookie. Playground endpoints are public but rate limited (5 runs per IP per hour, 200 per day globally) and capped to a cheap model.
+**Auth.** Agents send `Authorization: Bearer tw_<prefix>_<secret>`; keys are argon2id-hashed in `api_keys`, created with `tripwire keys create --name <agent> [--role operator]`, and a session is bound to the key that created it. Keys have a role: `agent` keys use sessions, checks and `/mcp`; `operator` keys can also decide approvals and review tools, so an agent can never approve its own held calls. Keys also have an MCP session scope (`key` | `connection` | `header`, [mcp.md](mcp.md#sessions)); `TRIPWIRE_ENV=production` makes `header` the default and refuses `key` unless forced. The console uses a JWT in an httpOnly cookie. Playground endpoints are public but rate limited (5 runs per IP per hour, 200 per day globally) and capped to a cheap model.
 
 ### 6.3 Policy YAML schema
 
@@ -277,6 +278,7 @@ defaults:
   on_engine_error: block             # block | require_approval (never allow)
   classifier_threshold: 0.85
   suspicious_threshold: 0.5
+  instruction_origin: strict         # strict | off: sessions with no known user prompt (MCP)
 detection:
   combine: corroborated              # corroborated | either (see docs/detection.md)
   classifier_shadow: false           # true: classify every result in the background, log only
@@ -316,14 +318,14 @@ Rules evaluate in file order; the first `block` wins, then `require_approval`, t
 | 4 | Classifier training (`ml/`): dataset with held-out attack family, MiniLM-L6 and DeBERTa-v3-small fine-tunes (Prompt Guard 2 22M zero-shot as a reference), threshold at 1% FPR, int8 ONNX export | Artifact folder loads in the gateway; `metrics.json` published; accuracy vs latency reported per model; default published as a release asset and baked into the image |
 | 5 | MCP proxy (SDK v2), manifest security, approvals | Namespaced tools; poisoned tool quarantined; rug pull blocked; approval granted via API completes the held call; denied or timed-out approval is an error to the client (integration tests with the SDK client, manual check with the MCP Inspector: [mcp.md](mcp.md)) |
 | 6 | `tripwire-guard` SDK adapters | Examples run end to end against a local gateway |
-| 7 | Playground backend: 6 preset scenarios, dual run, custom attacks, cost controls | Every preset succeeds unprotected and is stopped protected, verified automatically |
+| 7 | Playground backend: 6 preset scenarios, dual run, custom attacks, cost controls. **Each run uses its own Tripwire session** (`POST /v1/sessions` with the scenario's user prompt, then `X-Tripwire-Session` on every MCP request or the session id on every check), so taint and user-prompt entities never cross between runs or visitors | Every preset succeeds unprotected and is stopped protected, verified automatically |
 | 8 | Web app: playground, console (overview, events, traces, approvals, tools, policy editor, evals), auth | `pnpm build` passes; Lighthouse ≥ 90 on `/` |
 | 9 | Evaluations: AgentDojo defense element, MCP suite, adaptive attacker, load test | Results table with real numbers, README updated from it |
 | 10 | Observability, production images, Helm, deployment, docs | Fresh clone to running stack in under 10 minutes from the README |
 
 ## 8. Environment variables
 
-See [`.env.example`](../.env.example). Gateway: `DATABASE_URL`, `REDIS_URL`, `TRIPWIRE_POLICY_PATH`, `TRIPWIRE_CLASSIFIER_DIR`, `TRIPWIRE_MCP_UPSTREAMS`, `TRIPWIRE_APPROVAL_TIMEOUT_S`, `TRIPWIRE_MCP_ALLOWED_HOSTS`, `TRIPWIRE_MCP_ALLOWED_ORIGINS`, `TRIPWIRE_LLM_JUDGE_ENABLED`, `TRIPWIRE_MODE`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_READONLY_PASSWORD`, `CORS_ORIGINS`, `PLAYGROUND_PROVIDER`, `PLAYGROUND_MODEL`, `PLAYGROUND_DAILY_RUN_CAP`, provider API keys, `OTEL_EXPORTER_OTLP_ENDPOINT`. Web: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL`. Evals: `TRIPWIRE_URL`, `TRIPWIRE_API_KEY`.
+See [`.env.example`](../.env.example). Gateway: `DATABASE_URL`, `REDIS_URL`, `TRIPWIRE_POLICY_PATH`, `TRIPWIRE_CLASSIFIER_DIR`, `TRIPWIRE_ENV`, `TRIPWIRE_MCP_UPSTREAMS`, `TRIPWIRE_APPROVAL_TIMEOUT_S`, `TRIPWIRE_MCP_ALLOWED_HOSTS`, `TRIPWIRE_MCP_ALLOWED_ORIGINS`, `TRIPWIRE_LLM_JUDGE_ENABLED`, `TRIPWIRE_MODE`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_READONLY_PASSWORD`, `CORS_ORIGINS`, `PLAYGROUND_PROVIDER`, `PLAYGROUND_MODEL`, `PLAYGROUND_DAILY_RUN_CAP`, provider API keys, `OTEL_EXPORTER_OTLP_ENDPOINT`. Web: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL`. Evals: `TRIPWIRE_URL`, `TRIPWIRE_API_KEY`.
 
 ## 9. Integration pitfalls
 
