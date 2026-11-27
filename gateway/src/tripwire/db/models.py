@@ -173,3 +173,18 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[str] = mapped_column(String(16), default="readonly")  # admin | readonly
     created_at: Mapped[datetime] = _created_at()
+
+
+class PlaygroundRun(Base):
+    """A finished playground run (both sides), served for replay by id."""
+
+    __tablename__ = "playground_runs"
+    __table_args__ = (Index("ix_playground_runs_created", "created_at"),)
+
+    id: Mapped[uuid.UUID] = _uuid_pk()
+    scenario_id: Mapped[str] = mapped_column(String(100))
+    source: Mapped[str] = mapped_column(String(16))  # live | scripted
+    model: Mapped[str] = mapped_column(String(200))
+    ip_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    payload: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    created_at: Mapped[datetime] = _created_at()

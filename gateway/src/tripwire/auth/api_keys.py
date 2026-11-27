@@ -173,6 +173,28 @@ class SqlKeyRepository:
             s.add(row)
         return NewKey(row.id, name, token, role, session_scope, session_scope_forced)
 
+    async def ensure_reserved(self, key_id: uuid.UUID, name: str) -> None:
+        """A revoked placeholder key that owns internal sessions (the playground).
+
+        Revoked, with a hash of random bytes: no token can ever authenticate as it.
+        """
+        from sqlalchemy.dialects.postgresql import insert
+
+        async with self._factory() as s, s.begin():
+            await s.execute(
+                insert(db.ApiKey)
+                .values(
+                    id=key_id,
+                    name=name,
+                    prefix="reserved",
+                    key_hash=await asyncio.to_thread(hash_token, secrets.token_urlsafe(32)),
+                    revoked=True,
+                    role="agent",
+                    session_scope="header",
+                )
+                .on_conflict_do_nothing(index_elements=["id"])
+            )
+
     async def list(self) -> list[KeyRecord]:
         async with self._factory() as s:
             rows = (await s.scalars(select(db.ApiKey).order_by(db.ApiKey.created_at))).all()

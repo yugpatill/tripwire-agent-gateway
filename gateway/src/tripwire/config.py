@@ -50,7 +50,15 @@ class Settings(BaseSettings):
 
     playground_provider: Literal["anthropic", "openai"] = "anthropic"
     playground_model: str = ""
-    playground_daily_run_cap: int = 200
+    playground_daily_run_cap: int = 200  # live (real-model) runs per UTC day, all visitors
+    playground_ip_hourly_limit: int = 5
+    playground_max_steps: int = 8
+    playground_max_output_tokens: int = 4000  # per run and side
+    playground_max_concurrent: int = 4
+    # The playground always runs under this policy, whatever the active policy is.
+    playground_policy_path: str = "policies/demo.yaml"
+    # Use the first X-Forwarded-For address as the visitor IP (only behind a proxy you run).
+    playground_trust_forwarded: bool = False
 
     anthropic_api_key: SecretStr = SecretStr("")
     openai_api_key: SecretStr = SecretStr("")

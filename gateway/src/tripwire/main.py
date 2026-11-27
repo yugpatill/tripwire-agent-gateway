@@ -13,7 +13,7 @@ from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
 from tripwire import __version__
-from tripwire.api import approvals, check, health, sessions, stream, tools
+from tripwire.api import approvals, check, health, playground, sessions, stream, tools
 from tripwire.approvals.service import ApprovalService, RedisEventBus, SqlApprovalStore
 from tripwire.auth.api_keys import ApiKeyAuthenticator, SqlKeyRepository
 from tripwire.config import Settings, get_settings
@@ -25,6 +25,8 @@ from tripwire.pipeline.engine import Engine
 from tripwire.pipeline.llm_judge import AnthropicJudge, Judge
 from tripwire.pipeline.pii import PiiDetector
 from tripwire.pipeline.recorder import SqlRecorder
+from tripwire.playground.runner import PLAYGROUND_OWNER, PlaygroundConfig, PlaygroundRunner
+from tripwire.playground.store import RedisLimits, RedisRunEvents, SqlRunStore
 from tripwire.policy.compiler import CompiledPolicy, compile_policy
 from tripwire.policy.loader import PolicyError, load_policy_file
 from tripwire.proxy.guard import ManifestGuard, SqlPinStore
@@ -55,6 +57,25 @@ def build_detection(settings: Settings) -> DetectionPipeline:
             )
     pii = None if settings.tripwire_pii_mode == "off" else PiiDetector(settings.tripwire_pii_mode)
     return DetectionPipeline(classifier=classifier, judge=judge, pii=pii)
+
+
+def playground_config(settings: Settings) -> PlaygroundConfig:
+    key = (
+        settings.anthropic_api_key
+        if settings.playground_provider == "anthropic"
+        else settings.openai_api_key
+    )
+    return PlaygroundConfig(
+        provider=settings.playground_provider,
+        model=settings.playground_model,
+        api_key=key.get_secret_value(),
+        max_steps=settings.playground_max_steps,
+        max_output_tokens=settings.playground_max_output_tokens,
+        ip_per_hour=settings.playground_ip_hourly_limit,
+        daily_cap=settings.playground_daily_run_cap,
+        max_concurrent=settings.playground_max_concurrent,
+        ip_salt=settings.jwt_secret.get_secret_value(),
+    )
 
 
 def load_active_policy(path: str) -> CompiledPolicy | None:
@@ -113,6 +134,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             settings.tripwire_mcp_allowed_origins,
             production=settings.tripwire_env == "production",
         )
+        keys = SqlKeyRepository(app.state.sessionmaker)
+        app.state.playground = PlaygroundRunner(
+            Engine(
+                store=RedisTaintStore(app.state.redis),
+                recorder=SqlRecorder(app.state.sessionmaker),
+                policy=load_active_policy(settings.playground_policy_path),
+                detection=detection,
+            ),
+            detection,
+            SqlRunStore(app.state.sessionmaker),
+            RedisRunEvents(app.state.redis),
+            RedisLimits(app.state.redis),
+            playground_config(settings),
+            ensure_owner=lambda: keys.ensure_reserved(PLAYGROUND_OWNER, "playground"),
+        )
         log.info(
             "gateway.startup",
             version=__version__,
@@ -123,6 +159,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             async with manager.run():
                 yield
         finally:
+            await app.state.playground.aclose()
             await pool.aclose()
             await app.state.engine.drain_shadow()
             await app.state.redis.aclose()
@@ -144,6 +181,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(approvals.router)
     app.include_router(tools.router)
     app.include_router(stream.router)
+    app.include_router(playground.router)
 
     class McpEndpoint:
         """ASGI endpoint (a class, so Starlette passes every method through).
