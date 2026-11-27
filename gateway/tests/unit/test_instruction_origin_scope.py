@@ -31,12 +31,12 @@ TYPED = "bob@partner.example"  # the user typed this in their chat client
 
 def demo_with(origin: str) -> CompiledPolicy:
     text = (POLICIES / "demo.yaml").read_text()
-    text = text.replace(
-        "  suspicious_threshold: 0.5\n",
-        f"  suspicious_threshold: 0.5\n  instruction_origin: {origin}\n",
-        1,
+    assert "  instruction_origin: strict\n" in text
+    policy = policy_from(
+        text.replace("  instruction_origin: strict\n", f"  instruction_origin: {origin}\n")
     )
-    return policy_from(text)
+    assert policy.doc.defaults.instruction_origin == origin
+    return policy
 
 
 async def _after_fetch(engine: Engine, prompt: str) -> uuid.UUID:
