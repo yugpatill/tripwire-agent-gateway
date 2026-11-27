@@ -59,7 +59,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from tripwire import __version__
 from tripwire.approvals.service import ApprovalService
 from tripwire.auth.api_keys import ApiKeyAuthenticator, Principal
-from tripwire.models import SessionCreate, ToolCall, ToolResult
+from tripwire.models import Decision, SessionCreate, ToolCall, ToolResult
 from tripwire.pipeline.engine import Engine
 from tripwire.pipeline.manifest import NAMESPACE_SEP, Manifest
 from tripwire.proxy.guard import ManifestGuard
@@ -78,8 +78,24 @@ INSTRUCTIONS = (
 )
 
 
-def _error(text: str) -> CallToolResult:
-    return CallToolResult(content=[TextContent(type="text", text=text)], is_error=True)
+def _error(text: str, meta: dict[str, Any] | None = None) -> CallToolResult:
+    return CallToolResult(
+        content=[TextContent(type="text", text=text)],
+        is_error=True,
+        _meta={"tripwire": meta} if meta else None,
+    )
+
+
+def _meta(decision: Decision, status: str, **extra: Any) -> dict[str, Any]:
+    """`_meta.tripwire` on every tool result: what Tripwire decided and why."""
+    return {
+        "status": status,
+        "action": decision.action,
+        "rule_id": decision.rule_id,
+        "message": decision.message,
+        "event_id": str(decision.event_id),
+        **extra,
+    }
 
 
 def _text_of(result: CallToolResult) -> str:
@@ -288,7 +304,8 @@ class McpProxy:
             return _error(f"Unknown tool {name}. Tools are named '<server>__<tool>'.")
         ok, reason = await self.guard.callable_status(name)
         if not ok:
-            return _error(reason)
+            rule = "manifest-rug-pull" if "rug pull" in reason else "manifest-quarantine"
+            return _error(reason, {"status": "blocked", "action": "block", "rule_id": rule})
 
         owner = ident.principal.key_id
         decision = await self.engine.check_call(
@@ -296,12 +313,13 @@ class McpProxy:
         )
         if decision.action == "block":
             return _error(
-                f"Blocked by Tripwire ({decision.rule_id or 'policy'}): {decision.message}"
+                f"Blocked by Tripwire ({decision.rule_id or 'policy'}): {decision.message}",
+                _meta(decision, "blocked"),
             )
         if decision.action == "require_approval":
             outcome = await self._await_approval(decision.approval_id, ctx)
             if outcome != "approved":
-                return _error(outcome)
+                return _error(outcome, _meta(decision, "denied"))
         elif decision.action == "redact" and decision.redacted_args is not None:
             args = decision.redacted_args
 
@@ -309,7 +327,10 @@ class McpProxy:
             upstream = await self.pool.call(server, tool, args)
         except Exception as exc:
             log.warning("mcp.upstream_call_failed", tool=name, error=repr(exc))
-            return _error(f"Upstream server '{server}' failed: {type(exc).__name__}.")
+            return _error(
+                f"Upstream server '{server}' failed: {type(exc).__name__}.",
+                _meta(decision, "error"),
+            )
 
         checked = await self.engine.check_result(
             ToolResult(
@@ -321,11 +342,28 @@ class McpProxy:
             owner=owner,
         )
         if checked.decision.action == "block":
-            return _error("Tripwire could not vet this tool result, so it was withheld.")
+            return _error(
+                "Tripwire could not vet this tool result, so it was withheld.",
+                _meta(decision, "withheld"),
+            )
         content = checked.content_redacted
         text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+        flagged = [
+            {"detector": d.detector, "score": d.score, "spans": d.spans, "reason": d.reason}
+            for d in checked.detectors
+            if d.detector in ("heuristic", "classifier", "llm_judge", "secrets")
+        ]
         return CallToolResult(
-            content=[TextContent(type="text", text=text)], is_error=upstream.is_error
+            content=[TextContent(type="text", text=text)],
+            is_error=upstream.is_error,
+            _meta={
+                "tripwire": _meta(
+                    decision,
+                    "allowed",
+                    result_suspicious=any(p.trust == "suspicious" for p in checked.labels),
+                    result_detectors=flagged,
+                )
+            },
         )
 
     async def _await_approval(

@@ -82,9 +82,14 @@ def load_upstreams(path: str | Path) -> dict[str, UpstreamSpec]:
 
 
 class Upstream:
-    def __init__(self, name: str, spec: UpstreamSpec) -> None:
+    def __init__(self, name: str, spec: UpstreamSpec | None, server: Any = None) -> None:
+        """`server`: an in-process MCP server object (SDK in-memory transport), used by
+        the playground; otherwise `spec` says how to reach the upstream."""
+        if (spec is None) == (server is None):
+            raise ValueError("give exactly one of spec or server")
         self.name = name
         self.spec = spec
+        self.server = server
         self._stack: AsyncExitStack | None = None
         self._client: Client | None = None
         self._lock = asyncio.Lock()
@@ -92,7 +97,9 @@ class Upstream:
     async def _connect(self) -> Client:
         stack = AsyncExitStack()
         try:
-            if self.spec.url is not None:
+            if self.server is not None:
+                client = await stack.enter_async_context(Client(self.server))
+            elif self.spec is not None and self.spec.url is not None:
                 http = await stack.enter_async_context(
                     httpx2.AsyncClient(
                         headers={k: _expand(v) for k, v in self.spec.headers.items()},
@@ -102,7 +109,7 @@ class Upstream:
                 transport = streamable_http_client(self.spec.url, http_client=http)
                 client = await stack.enter_async_context(Client(transport))
             else:
-                assert self.spec.command is not None
+                assert self.spec is not None and self.spec.command is not None
                 params = StdioServerParameters(
                     command=self.spec.command,
                     args=self.spec.args,
@@ -165,6 +172,13 @@ class Upstream:
 class UpstreamPool:
     def __init__(self, specs: dict[str, UpstreamSpec]) -> None:
         self.upstreams = {name: Upstream(name, spec) for name, spec in specs.items()}
+
+    @classmethod
+    def in_memory(cls, servers: dict[str, Any]) -> UpstreamPool:
+        """Upstreams that are MCP server objects in this process (playground runs)."""
+        pool = cls({})
+        pool.upstreams = {name: Upstream(name, None, server) for name, server in servers.items()}
+        return pool
 
     async def list_all(self) -> dict[str, list[Tool]]:
         """Tools per reachable upstream; an unreachable upstream lists nothing."""
