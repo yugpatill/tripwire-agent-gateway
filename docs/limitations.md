@@ -67,6 +67,14 @@ Numbers and method: [detection.md](detection.md).
 4. **Held calls block the agent.** With `require_approval` the adapter polls the gateway for up to 130 s while the tool call waits; the agent's own timeouts must allow that.
 5. **Tool names must match the policy.** A tool the policy does not know falls under `defaults.unknown_tool` (`require_approval` in the shipped policies); map framework names with `tool_names=`.
 
+## Playground
+
+1. **Scripted runs are demonstrations, not measurements.** The scripted model follows every injection by construction; it shows what Tripwire stops, not how often a real model falls for an attack. Real-model replays show one sample each. Attack success rates come from the Phase 9 evaluation.
+2. **No operator in the playground.** A call that needs approval is denied at once, so the protected side can also refuse legitimate actions once a session saw an injection (`suspicious-session-sinks`).
+3. **The protected side uses Tripwire in process.** It runs the same code as `/v1/mcp` (manifest guard, engine, one session per run), with in-memory mock servers per run, not an HTTP round trip.
+4. **Custom-attack scoring is coarse.** For a visitor's text, the attacker wins with an email to anyone but the user, a transfer, a write elsewhere, or a request carrying a seeded secret; other harm (a misleading summary, a wrong answer) is not scored.
+5. **The naive scripted model is literal.** Without a real model, custom attacks act on addresses, accounts, URLs and paths in the text; instructions with none of those do nothing.
+
 ## Attacks within trusted tools
 
 Data returned by a tool the policy marks `trust: trusted` is trusted. If that tool is compromised, or relays attacker content (for example a CRM that stores whatever a web form submitted), Tripwire treats its output as trusted. Mark such tools `untrusted`.
