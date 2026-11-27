@@ -57,3 +57,18 @@ def test_thresholds_must_be_ordered() -> None:
         parse_policy(
             "version: 1\ndefaults: {classifier_threshold: 0.4, suspicious_threshold: 0.6}\n"
         )
+
+
+def test_detection_defaults_to_corroborated_without_shadow() -> None:
+    doc = parse_policy("version: 1\n")
+    assert doc.detection.combine == "corroborated"
+    assert doc.detection.classifier_shadow is False
+
+
+def test_detection_settings_parse_and_reject_unknown_values() -> None:
+    doc = parse_policy("version: 1\ndetection:\n  combine: either\n  classifier_shadow: true\n")
+    assert doc.detection.combine == "either" and doc.detection.classifier_shadow is True
+    with pytest.raises(PolicyError):
+        parse_policy("version: 1\ndetection:\n  combine: any\n")
+    with pytest.raises(PolicyError):
+        parse_policy("version: 1\ndetection:\n  shadow: true\n")

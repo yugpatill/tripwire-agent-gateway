@@ -3,6 +3,15 @@
 Order: heuristics -> classifier (if loaded) -> LLM judge (gray zone, if enabled)
 -> secrets -> PII. CPU-heavy stages run in worker threads so the event loop
 keeps serving other requests.
+
+How heuristics (h) and classifier (c, calibrated so its threshold is 0.5) combine
+is the policy's `detection.combine`:
+
+- corroborated (default): suspicious if h >= suspicious_threshold, or if
+  0 < h and c >= suspicious_threshold. The classifier runs only when
+  0 < h < suspicious_threshold, on the windows around the heuristic signals.
+- either: suspicious if max(h, c) >= suspicious_threshold. The classifier runs on
+  every result unless h already reaches classifier_threshold.
 """
 
 from __future__ import annotations
@@ -11,7 +20,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 
 from tripwire.models import CONFIDENTIALITY_ORDER, Confidentiality, DetectorResult
 from tripwire.pipeline import heuristics, secrets
@@ -21,6 +30,7 @@ from tripwire.pipeline.normalize import flatten_strings
 from tripwire.pipeline.pii import PiiDetector
 
 T = TypeVar("T")
+Combine = Literal["corroborated", "either"]
 
 
 @dataclass(slots=True)
@@ -60,6 +70,9 @@ def redact_secrets_in(content: Any) -> Any:
 
 
 class DetectionPipeline:
+    """Runs the detectors. `shadow_classify` is the off-path classifier run used by
+    `detection.classifier_shadow`; it never feeds a decision."""
+
     def __init__(
         self,
         classifier: InjectionClassifier | None = None,
@@ -69,6 +82,15 @@ class DetectionPipeline:
         self.classifier = classifier
         self.judge = judge
         self.pii = pii
+
+    async def shadow_classify(self, text: str) -> DetectorResult | None:
+        """Classify the whole result with the default window selection (Phase 3
+        behaviour). For logging only; None when no classifier is loaded."""
+        clf = self.classifier
+        if clf is None or not clf.available:
+            return None
+        r = await asyncio.to_thread(clf.score, text)
+        return r.model_copy(update={"detector": "classifier_shadow"})
 
     async def _timed(
         self, timings: dict[str, float], name: str, fn: Callable[[], Awaitable[T]]
@@ -80,7 +102,11 @@ class DetectionPipeline:
             timings[name] = round((time.perf_counter() - start) * 1000, 3)
 
     async def analyze(
-        self, text: str, suspicious_threshold: float, classifier_threshold: float
+        self,
+        text: str,
+        suspicious_threshold: float,
+        classifier_threshold: float,
+        combine: Combine = "corroborated",
     ) -> Analysis:
         timings: dict[str, float] = {}
         results: list[DetectorResult] = []
@@ -93,13 +119,21 @@ class DetectionPipeline:
 
         clf = self.classifier
         if clf is not None and clf.available:
-            if h.score >= classifier_threshold:
+            if combine == "corroborated":
+                run = 0 < h.score < suspicious_threshold
+                signal_only = True
+            else:
                 # Early exit: heuristics alone already exceed the classifier threshold.
+                run = h.score < classifier_threshold
+                signal_only = False
+            if not run:
                 timings["classifier_skipped"] = 0.0
             else:
                 focus = h.spans if h.score > 0 else []
                 c = await self._timed(
-                    timings, "classifier", lambda: asyncio.to_thread(clf.score, text, focus)
+                    timings,
+                    "classifier",
+                    lambda: asyncio.to_thread(clf.score, text, focus, signal_only),
                 )
                 results.append(c)
                 score = max(score, c.score)

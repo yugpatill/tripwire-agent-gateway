@@ -63,7 +63,9 @@ class ToolResult(BaseModel):
 
 
 class DetectorResult(BaseModel):
-    detector: Literal["heuristic", "classifier", "llm_judge", "secrets", "pii", "manifest"]
+    detector: Literal[
+        "heuristic", "classifier", "classifier_shadow", "llm_judge", "secrets", "pii", "manifest"
+    ]
     score: float = Field(ge=0.0, le=1.0)
     spans: list[tuple[int, int]]
     reason: str

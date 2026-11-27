@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from collections import OrderedDict
@@ -79,6 +80,9 @@ class StageTimer:
         return round((time.perf_counter() - self._t0) * 1000, 3)
 
 
+MAX_SHADOW_TASKS = 4
+
+
 class Engine:
     def __init__(
         self,
@@ -98,6 +102,10 @@ class Engine:
         self._indexes: OrderedDict[UUID, ValueIndex] = OrderedDict()
         self.index_cache_size = index_cache_size
         self.detection = detection or DetectionPipeline()
+        # Background shadow-classifier tasks (detection.classifier_shadow). Bounded so a
+        # burst of large results cannot queue unbounded CPU work behind live requests.
+        self._shadow_tasks: set[asyncio.Task[None]] = set()
+        self.max_shadow_tasks = MAX_SHADOW_TASKS
 
     async def _value_index(self, session_id: UUID) -> ValueIndex:
         idx = self._indexes.get(session_id)
@@ -273,6 +281,7 @@ class Engine:
             content_text(result.content),
             defaults.suspicious_threshold,
             defaults.classifier_threshold,
+            policy.doc.detection.combine,
         )
         timer.timings.update(analysis.timings)
 
@@ -339,9 +348,44 @@ class Engine:
                 )
             )
         decision.latency_ms = timer.total_ms
+        if policy.doc.detection.classifier_shadow:
+            self._start_shadow(event_id, content_text(result.content), analysis.suspicious)
         return ResultCheck(
             content_redacted=content_out, labels=[label], detectors=detectors, decision=decision
         )
+
+    # ---------- shadow classifier ----------
+
+    def _start_shadow(self, event_id: UUID, text: str, suspicious: bool) -> None:
+        """Classify the result off the request path; the decision is already made."""
+        if len(self._shadow_tasks) >= self.max_shadow_tasks:
+            log.warning("classifier.shadow_dropped", event_id=str(event_id), reason="busy")
+            return
+        task = asyncio.create_task(self._shadow(event_id, text, suspicious))
+        self._shadow_tasks.add(task)
+        task.add_done_callback(self._shadow_tasks.discard)
+
+    async def _shadow(self, event_id: UUID, text: str, suspicious: bool) -> None:
+        try:
+            await asyncio.sleep(0)  # let the response go out first
+            r = await self.detection.shadow_classify(text)
+            if r is None:
+                return
+            log.info(
+                "classifier.shadow",
+                event_id=str(event_id),
+                score=r.score,
+                would_flag=r.score >= 0.5,
+                decision_suspicious=suspicious,
+            )
+            await self.recorder.add_detector(event_id, r.model_dump(mode="json"))
+        except Exception as exc:  # shadow work must never surface
+            log.warning("classifier.shadow_failed", event_id=str(event_id), error=repr(exc))
+
+    async def drain_shadow(self) -> None:
+        """Wait for pending shadow tasks (tests and shutdown)."""
+        if self._shadow_tasks:
+            await asyncio.gather(*self._shadow_tasks, return_exceptions=True)
 
     # ---------- helpers ----------
 

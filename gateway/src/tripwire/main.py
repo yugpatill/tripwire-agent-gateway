@@ -85,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         try:
             yield
         finally:
+            await app.state.engine.drain_shadow()
             await app.state.redis.aclose()
             await engine.dispose()
             log.info("gateway.shutdown")

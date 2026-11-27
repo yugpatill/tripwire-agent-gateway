@@ -27,6 +27,22 @@ class PolicyDefaults(_Strict):
         return self
 
 
+class DetectionSettings(_Strict):
+    """How detector scores become a `suspicious` verdict (docs/detection.md).
+
+    corroborated: suspicious if heuristics >= suspicious_threshold, or the classifier
+      flags content that also has a weak heuristic signal (0 < heuristics). The
+      classifier runs only in that weak-signal band, on the windows around the signals.
+    either: suspicious if heuristics or classifier reaches suspicious_threshold; the
+      classifier runs on every result (Phase 3 behaviour).
+    classifier_shadow: also classify every result in the background after the response,
+      for logging and the dashboard only. Never changes a decision.
+    """
+
+    combine: Literal["corroborated", "either"] = "corroborated"
+    classifier_shadow: bool = False
+
+
 class ToolSpec(_Strict):
     trust: Literal["trusted", "untrusted"] = "untrusted"
     confidentiality: Confidentiality = "internal"
@@ -66,6 +82,7 @@ class Rule(_Strict):
 class PolicyDocument(_Strict):
     version: Literal[1]
     defaults: PolicyDefaults = Field(default_factory=PolicyDefaults)
+    detection: DetectionSettings = Field(default_factory=DetectionSettings)
     tools: dict[str, ToolSpec] = Field(default_factory=dict)
     rules: list[Rule] = Field(default_factory=list)
 

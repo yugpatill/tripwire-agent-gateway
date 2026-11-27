@@ -42,6 +42,9 @@ class SessionRecord:
 class Recorder(Protocol):
     async def record_session(self, rec: SessionRecord) -> None: ...
     async def record_event(self, rec: EventRecord) -> None: ...
+    async def add_detector(self, event_id: UUID, detector: dict[str, Any]) -> None:
+        """Append a detector result to a recorded event (shadow classifier)."""
+        ...
 
 
 @dataclass
@@ -54,6 +57,11 @@ class MemoryRecorder:
 
     async def record_event(self, rec: EventRecord) -> None:
         self.events.append(rec)
+
+    async def add_detector(self, event_id: UUID, detector: dict[str, Any]) -> None:
+        for e in self.events:
+            if e.id == event_id:
+                e.detectors = [*e.detectors, detector]
 
 
 class SqlRecorder:
@@ -93,3 +101,10 @@ class SqlRecorder:
                     stage_timings=rec.stage_timings,
                 )
             )
+
+    async def add_detector(self, event_id: UUID, detector: dict[str, Any]) -> None:
+        async with self._factory() as s, s.begin():
+            row = await s.get(db.Event, event_id, with_for_update=True)
+            if row is not None:
+                # Reassign (not append) so the JSON column is marked dirty.
+                row.detectors = [*row.detectors, detector]

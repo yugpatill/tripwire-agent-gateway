@@ -7,6 +7,14 @@ defaults:
   classifier_threshold: 0.85
   suspicious_threshold: 0.5
 
+# How heuristics and the classifier combine (docs/detection.md):
+#   corroborated: a classifier hit counts only alongside a heuristic signal; the
+#                 classifier runs only on weak-signal results (fast, fewer false positives)
+#   either:       either detector alone marks content suspicious
+detection:
+  combine: corroborated
+  classifier_shadow: false   # true: also classify every result in the background, log only
+
 tools: {}
 
 rules:

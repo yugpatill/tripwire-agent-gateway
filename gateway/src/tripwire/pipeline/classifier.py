@@ -45,6 +45,9 @@ MAX_FOCUS_WINDOWS = 4
 # A "focus" span longer than this fraction of the text (e.g. a whole-document
 # invisible-character signal) does not localize anything and is ignored.
 MAX_FOCUS_FRACTION = 0.5
+# Signal-only mode (corroborated rule): windows that overlap a heuristic span plus
+# their immediate neighbours, strongest signal first, at most this many in total.
+MAX_SIGNAL_WINDOWS = 8
 MODEL_FILE = "model.int8.onnx"
 TOKENIZER_FILE = "tokenizer.json"
 CONFIG_FILE = "config.json"
@@ -179,9 +182,45 @@ class InjectionClassifier:
                     extra += 1
         return sorted(chosen)
 
-    def score(self, text: str, focus: list[tuple[int, int]] | None = None) -> DetectorResult:
-        """p(injection) as the max over windows. `focus` spans (e.g. weak heuristic
-        hits) decide which middle windows are classified for long inputs."""
+    @staticmethod
+    def select_signal_windows(
+        char_ranges: list[tuple[int, int]],
+        focus: list[tuple[int, int]],
+        text_len: int,
+    ) -> list[int]:
+        """Indices of windows overlapping a focus span, plus their neighbours.
+
+        Spans are taken strongest first; document-wide spans (more than
+        MAX_FOCUS_FRACTION of the text) localize nothing and are ignored. At most
+        MAX_SIGNAL_WINDOWS windows. Empty when no span localizes anything.
+        """
+        n = len(char_ranges)
+        chosen: list[int] = []
+        for fs, fe in focus:
+            if fe - fs > MAX_FOCUS_FRACTION * text_len and n > 1:
+                continue
+            hits = [i for i, (s, e) in enumerate(char_ranges) if s < fe and fs < e]
+            if not hits:
+                continue
+            for i in range(max(hits[0] - 1, 0), min(hits[-1] + 2, n)):
+                if i not in chosen:
+                    if len(chosen) >= MAX_SIGNAL_WINDOWS:
+                        return sorted(chosen)
+                    chosen.append(i)
+        return sorted(chosen)
+
+    def score(
+        self,
+        text: str,
+        focus: list[tuple[int, int]] | None = None,
+        signal_only: bool = False,
+    ) -> DetectorResult:
+        """p(injection) as the max over windows, calibrated (see `calibrate`).
+
+        Default: every window of a short input; for long inputs the head and tail
+        windows plus windows around `focus` spans. `signal_only`: only the windows
+        around `focus` spans and their neighbours (falls back to the default
+        selection if no span localizes anything)."""
         if not self.available or not text.strip():
             return DetectorResult(
                 detector="classifier", score=0.0, spans=[], reason=self.reason or "empty input"
@@ -195,7 +234,9 @@ class InjectionClassifier:
         body = self.config.max_length - self._tokenizer.num_special_tokens_to_add(False)
         starts = self._window_starts(len(ids))
         ranges = [(offsets[st][0], offsets[min(st + body, len(ids)) - 1][1]) for st in starts]
-        selected = self.select_windows(ranges, focus or [], len(text))
+        selected = (
+            self.select_signal_windows(ranges, focus or [], len(text)) if signal_only else []
+        ) or self.select_windows(ranges, focus or [], len(text))
         best, best_span = 0.0, ranges[0]
         for i in selected:
             st = starts[i]
