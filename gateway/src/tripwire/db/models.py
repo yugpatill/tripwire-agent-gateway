@@ -77,16 +77,22 @@ class Event(Base):
 
 class Approval(Base):
     __tablename__ = "approvals"
-    __table_args__ = (Index("ix_approvals_status", "status"),)
+    __table_args__ = (
+        Index("ix_approvals_status", "status"),
+        Index("ix_approvals_kind_tool", "kind", "tool"),
+    )
 
     id: Mapped[uuid.UUID] = _uuid_pk()
-    event_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE")
+    # call: a held tool call; tool_quarantine / tool_change: a tool manifest to review.
+    kind: Mapped[str] = mapped_column(String(32), default="call", server_default="call")
+    event_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("events.id", ondelete="CASCADE"), nullable=True
     )
-    session_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE")
+    session_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=True
     )
     tool: Mapped[str] = mapped_column(String(300))
+    detail: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
     status: Mapped[str] = mapped_column(String(16), default="pending")
     scope: Mapped[str | None] = mapped_column(String(16), nullable=True)
     decided_by: Mapped[str | None] = mapped_column(String(320), nullable=True)
@@ -144,6 +150,9 @@ class ApiKey(Base):
     name: Mapped[str] = mapped_column(String(200))
     prefix: Mapped[str] = mapped_column(String(16), index=True)
     key_hash: Mapped[str] = mapped_column(String(255))
+    # agent: may call /v1/check, /v1/sessions, /v1/mcp. operator: may also decide
+    # approvals and review tools. An agent key can never approve its own held calls.
+    role: Mapped[str] = mapped_column(String(16), default="agent", server_default="agent")
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = _created_at()

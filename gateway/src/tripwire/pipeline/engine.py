@@ -13,6 +13,7 @@ from uuid import UUID
 
 import structlog
 
+from tripwire.approvals.service import ApprovalService
 from tripwire.models import (
     CONFIDENTIALITY_ORDER,
     Action,
@@ -92,8 +93,11 @@ class Engine:
         default_mode: str = "enforce",
         index_cache_size: int = 2048,
         detection: DetectionPipeline | None = None,
+        approvals: ApprovalService | None = None,
     ) -> None:
         self.store = store
+        # None: require_approval decisions get no approval record (callers deny them).
+        self.approvals = approvals
         self.recorder = recorder
         self.policy = policy  # None => policy failed to load: every decision fails closed
         self.default_mode = default_mode
@@ -195,6 +199,13 @@ class Engine:
         message = ev.message
         if enforced != computed:
             message = f"[shadow] would {computed}: {message}"
+        elif (
+            enforced == "require_approval"
+            and self.approvals is not None
+            and await self.approvals.session_granted(call.session_id, call.tool)
+        ):
+            enforced = "allow"
+            message = f"Approved for this session by an operator. Rule said: {message}"
 
         with timer.stage("persist"):
             await self.store.record_call(
@@ -232,6 +243,12 @@ class Engine:
                 stage_timings=dict(timer.timings),
             )
         )
+        if enforced == "require_approval" and self.approvals is not None:
+            with timer.stage("approval"):
+                rec = await self.approvals.request_call(
+                    call.session_id, event_id, call.tool, call.args, ev.rule_id, message
+                )
+            decision.approval_id = rec.id
         decision.latency_ms = timer.total_ms
         log.info(
             "decision.call",

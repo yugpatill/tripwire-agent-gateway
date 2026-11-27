@@ -34,3 +34,14 @@ async def require_api_key(
         raise unauthorized
     request.state.principal = principal
     return principal
+
+
+async def require_operator(
+    principal: Annotated[Principal, Depends(require_api_key)],
+) -> Principal:
+    """Approvals and tool reviews need an operator key; agent keys get 403."""
+    if not principal.is_operator:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Operator API key required"
+        )
+    return principal

@@ -15,7 +15,7 @@ import secrets
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError
@@ -25,6 +25,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tripwire.db import models as db
 
 KEY_PREFIX = "tw_"
+Role = Literal["agent", "operator"]
+ROLES: tuple[Role, ...] = ("agent", "operator")
 _PREFIX_LEN = 8
 _hasher = PasswordHasher()
 
@@ -34,6 +36,7 @@ class NewKey:
     id: uuid.UUID
     name: str
     token: str  # shown once, never stored
+    role: Role = "agent"
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,6 +46,12 @@ class KeyRecord:
     prefix: str
     key_hash: str
     revoked: bool
+    role: Role = "agent"
+
+
+def _role(value: str) -> Role:
+    """Unknown role strings degrade to the least privileged role."""
+    return "operator" if value == "operator" else "agent"
 
 
 def generate_token() -> tuple[str, str]:
@@ -84,7 +93,9 @@ class SqlKeyRepository:
     async def by_prefix(self, prefix: str) -> list[KeyRecord]:
         async with self._factory() as s:
             rows = (await s.scalars(select(db.ApiKey).where(db.ApiKey.prefix == prefix))).all()
-        return [KeyRecord(r.id, r.name, r.prefix, r.key_hash, r.revoked) for r in rows]
+        return [
+            KeyRecord(r.id, r.name, r.prefix, r.key_hash, r.revoked, _role(r.role)) for r in rows
+        ]
 
     async def touch(self, key_id: uuid.UUID) -> None:
         async with self._factory() as s, s.begin():
@@ -92,18 +103,18 @@ class SqlKeyRepository:
                 update(db.ApiKey).where(db.ApiKey.id == key_id).values(last_used_at=func.now())
             )
 
-    async def create(self, name: str) -> NewKey:
+    async def create(self, name: str, role: Role = "agent") -> NewKey:
         token, prefix = generate_token()
         key_hash = await asyncio.to_thread(hash_token, token)
-        row = db.ApiKey(name=name, prefix=prefix, key_hash=key_hash)
+        row = db.ApiKey(name=name, prefix=prefix, key_hash=key_hash, role=role)
         async with self._factory() as s, s.begin():
             s.add(row)
-        return NewKey(row.id, name, token)
+        return NewKey(row.id, name, token, role)
 
     async def list(self) -> list[KeyRecord]:
         async with self._factory() as s:
             rows = (await s.scalars(select(db.ApiKey).order_by(db.ApiKey.created_at))).all()
-        return [KeyRecord(r.id, r.name, r.prefix, "", r.revoked) for r in rows]
+        return [KeyRecord(r.id, r.name, r.prefix, "", r.revoked, _role(r.role)) for r in rows]
 
     async def revoke(self, key_id: uuid.UUID) -> bool:
         async with self._factory() as s, s.begin():
@@ -117,6 +128,11 @@ class SqlKeyRepository:
 class Principal:
     key_id: uuid.UUID
     name: str
+    role: Role = "agent"
+
+    @property
+    def is_operator(self) -> bool:
+        return self.role == "operator"
 
 
 class ApiKeyAuthenticator:
@@ -141,7 +157,7 @@ class ApiKeyAuthenticator:
             if rec.revoked:
                 continue
             if await asyncio.to_thread(verify_hash, rec.key_hash, token):
-                principal = Principal(rec.id, rec.name)
+                principal = Principal(rec.id, rec.name, rec.role)
                 if len(self._cache) >= self._size:
                     self._cache.clear()
                 self._cache[digest] = (now + self._ttl, principal)
