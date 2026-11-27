@@ -71,4 +71,6 @@ jobs:
           done
       - name: Stop the gateway
         if: always()
-        run: kill "$GW_PID" 2>/dev/null; cat /tmp/gw.log | tail -20 || true
+        run: |
+          if [ -n "${GW_PID:-}" ]; then kill "$GW_PID" || true; fi
+          tail -20 /tmp/gw.log 2>/dev/null || true

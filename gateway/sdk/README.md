@@ -71,12 +71,12 @@ Every function tool, on the agent and on agents it hands off to, is guarded. Hos
 ```python
 from tripwire_guard import wrap
 
-tools = wrap([web__fetch, email__send_email], user_prompt=user_message)   # Anthropic
-node = wrap(ToolNode([...]), guard=guard)                                 # LangGraph
-agent = wrap(agent, guard=guard)                                          # OpenAI Agents
+tools = wrap([web__fetch, email__send_email], user_prompt=user_message)  # Anthropic
+node = wrap(ToolNode([...]), guard=guard)  # LangGraph
+agent = wrap(agent, guard=guard)  # OpenAI Agents
 
-outcome = guard.call("files__read_file", {"path": p}, read_file)   # any framework
-safe_read = guard.tool(read_file)                                  # decorator, same signature
+outcome = guard.call("files__read_file", {"path": p}, read_file)  # any framework
+safe_read = guard.tool(read_file)  # decorator, same signature
 ```
 
 `GuardOutcome` has `status` (`allowed`, `blocked`, `denied`, `expired`, `error`, `unavailable`), `content` (what the model should see), `is_error`, `ran`, the gateway `decision`, and `suspicious_result` (the result looked like an injection). `guard.outcomes` keeps every call of the run.
