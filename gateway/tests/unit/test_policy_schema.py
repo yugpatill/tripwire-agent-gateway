@@ -72,3 +72,17 @@ def test_detection_settings_parse_and_reject_unknown_values() -> None:
         parse_policy("version: 1\ndetection:\n  combine: any\n")
     with pytest.raises(PolicyError):
         parse_policy("version: 1\ndetection:\n  shadow: true\n")
+
+
+@pytest.mark.parametrize(
+    "raw", ["http://a.example,http://b.example", '["http://a.example", "http://b.example"]']
+)
+def test_list_settings_accept_comma_and_json(raw: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    from tripwire.config import Settings
+
+    monkeypatch.setenv("CORS_ORIGINS", raw)
+    monkeypatch.setenv("TRIPWIRE_MCP_ALLOWED_HOSTS", raw)
+    s = Settings()
+    assert (
+        s.cors_origins == s.tripwire_mcp_allowed_hosts == ["http://a.example", "http://b.example"]
+    )

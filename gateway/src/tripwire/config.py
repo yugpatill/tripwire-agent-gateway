@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import Field, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -28,10 +29,10 @@ class Settings(BaseSettings):
     tripwire_mcp_upstreams: str = "mcp/upstreams.yaml"
     tripwire_approval_timeout_s: float = 120.0
     # Host/Origin allow-lists for /v1/mcp (DNS-rebinding protection of the SDK).
-    tripwire_mcp_allowed_hosts: list[str] = Field(
+    tripwire_mcp_allowed_hosts: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["localhost:*", "127.0.0.1:*", "[::1]:*", "gateway:*"]
     )
-    tripwire_mcp_allowed_origins: list[str] = Field(
+    tripwire_mcp_allowed_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"]
     )
 
@@ -40,7 +41,9 @@ class Settings(BaseSettings):
     admin_password: SecretStr = SecretStr("")
     demo_readonly_password: SecretStr = SecretStr("")
 
-    cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: ["http://localhost:3000"]
+    )
 
     playground_provider: Literal["anthropic", "openai"] = "anthropic"
     playground_model: str = ""
@@ -58,7 +61,10 @@ class Settings(BaseSettings):
     )
     @classmethod
     def _split_origins(cls, v: object) -> object:
-        if isinstance(v, str) and not v.strip().startswith("["):
+        """Comma-separated (`a,b`) or JSON (`["a","b"]`) lists from the environment."""
+        if isinstance(v, str):
+            if v.strip().startswith("["):
+                return json.loads(v)
             return [o.strip() for o in v.split(",") if o.strip()]
         return v
 
