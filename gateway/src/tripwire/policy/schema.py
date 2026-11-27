@@ -24,6 +24,10 @@ class PolicyDefaults(_Strict):
     # context, is `untrusted_origin`. off: skip that label (value matching still taints
     # entities copied from untrusted content). See docs/mcp.md.
     instruction_origin: Literal["strict", "off"] = "strict"
+    # With instruction_origin strict and no user prompt known: what a `block` becomes
+    # when it is caused only by that missing prompt (an argument entity of unknown
+    # origin). Values copied from untrusted content still block. See docs/mcp.md.
+    no_prompt_action: Literal["require_approval", "block"] = "require_approval"
 
     @field_validator("instruction_origin", mode="before")
     @classmethod

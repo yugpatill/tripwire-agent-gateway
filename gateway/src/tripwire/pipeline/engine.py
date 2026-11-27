@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import time
 import uuid
 from collections import OrderedDict
@@ -34,10 +35,16 @@ from tripwire.pipeline.detect import (
 )
 from tripwire.pipeline.recorder import EventRecord, Recorder, SessionRecord
 from tripwire.policy.compiler import UNKNOWN_TOOL_SPEC, CallFacts, CompiledPolicy
-from tripwire.policy.evaluate import evaluate
+from tripwire.policy.evaluate import Evaluation, evaluate
 from tripwire.taint.entities import entity_keys
 from tripwire.taint.labels import USER_SOURCE, Provenance
-from tripwire.taint.propagate import ValueIndex, label_args, tag_content, tag_text
+from tripwire.taint.propagate import (
+    NO_PROMPT_SOURCE,
+    ValueIndex,
+    label_args,
+    tag_content,
+    tag_text,
+)
 from tripwire.taint.store import CallRecord, SessionState, TaintStore
 
 log = structlog.get_logger(__name__)
@@ -205,11 +212,16 @@ class Engine:
             session_suspicious=session.suspicious,
         )
 
+        counts: dict[str, int] = {}
+
         async def counter(rule_id: str) -> int:
-            return await self.store.incr_counter(call.session_id, f"rule:{rule_id}")
+            counts[rule_id] = await self.store.incr_counter(call.session_id, f"rule:{rule_id}")
+            return counts[rule_id]
 
         with timer.stage("evaluate"):
             ev = await evaluate(policy, facts, counter)
+            if ev.action == "block" and policy.doc.defaults.no_prompt_action != "block":
+                ev = await self._soften_no_prompt_block(policy, facts, ev, counts)
 
         with timer.stage("secrets"):
             arg_detectors = [secret_scan.scan(content_text(call.args))]
@@ -287,6 +299,44 @@ class Engine:
             latency_ms=decision.latency_ms,
         )
         return decision
+
+    @staticmethod
+    async def _soften_no_prompt_block(
+        policy: CompiledPolicy, facts: CallFacts, ev: Evaluation, counts: dict[str, int]
+    ) -> Evaluation:
+        """A block caused only by a missing user prompt becomes `no_prompt_action`.
+
+        Re-evaluates without the no-prompt origin labels. If nothing else blocks,
+        the call needs approval instead (the user may simply have typed that
+        address in a client that never told Tripwire). Rate-limit counters are not
+        incremented a second time.
+        """
+        if not any(
+            p.source == NO_PROMPT_SOURCE for labels in facts.arg_labels.values() for p in labels
+        ):
+            return ev
+        stripped = {
+            arg: [p for p in labels if p.source != NO_PROMPT_SOURCE]
+            for arg, labels in facts.arg_labels.items()
+        }
+
+        async def replay(rule_id: str) -> int:
+            # The first pass already counted this call for every limit rule that
+            # matched; removing labels can only make fewer rules match.
+            return counts.get(rule_id, 0)
+
+        again = await evaluate(policy, dataclasses.replace(facts, arg_labels=stripped), replay)
+        if again.action == "block":
+            return ev
+        return Evaluation(
+            action=policy.doc.defaults.no_prompt_action,
+            rule_id=ev.rule_id,
+            message=(
+                f"{ev.message} No user prompt is known for this session, so the address or "
+                "value may have come from the user; an operator must approve it."
+            ),
+            hits=ev.hits,
+        )
 
     # ---------- tool results ----------
 

@@ -107,14 +107,23 @@ How to provide it (client application only, never model output):
 - `X-Tripwire-User-Prompt: <percent-encoded text>` on MCP requests (`TRIPWIRE_USER_PROMPT` for the stdio bridge). Each new text is added to the session as a user turn; repeats are ignored. For a multi-turn chat, send the latest user message.
 - `POST /v1/sessions` with `user_prompt`, then `X-Tripwire-Session` on MCP requests; later turns with `POST /v1/sessions/{id}/prompts` `{"text": "..."}` (used by the `tripwire-guard` SDK).
 
-When no prompt is known for a session, the policy decides (`defaults.instruction_origin`):
+When no prompt is known for a session, two policy defaults decide:
 
-| `instruction_origin` | No prompt known, untrusted content in context, argument entity from no known source | Attacker address copied from untrusted content |
+```yaml
+defaults:
+  instruction_origin: strict          # strict | off
+  no_prompt_action: require_approval  # require_approval | block (used with strict)
+```
+
+| Setting | No prompt known, untrusted content in context, argument entity from no known source | Attacker address copied from untrusted content (value match) |
 |---|---|---|
-| **`strict`** (default) | `untrusted_origin`: blocked by recipient/payee rules. Safe, but a recipient the user typed in their client is blocked too | blocked (value match) |
-| `off` | no label: allowed. A paraphrased or reassembled attacker address is no longer caught | blocked (value match) |
+| **`strict` + `no_prompt_action: require_approval`** (default) | labelled `untrusted_origin` (source `unknown:no_prompt`). A block caused only by that label becomes **`require_approval`**: an operator decides, because the user may simply have typed the address in a client that never told Tripwire | **blocked** |
+| `strict` + `no_prompt_action: block` | blocked (the behaviour before this setting existed) | **blocked** |
+| `off` | no label: allowed. A paraphrased or reassembled attacker address is no longer caught | **blocked** |
 
-Sessions with a known prompt always use instruction origin. Before any untrusted content, nothing is labelled `untrusted_origin` in either mode. (`off` may be written unquoted in YAML.)
+How "caused only by that label" is decided: when a call is blocked and an argument carries a no-prompt origin label, the policy is evaluated again without those labels. If nothing else blocks (no value match, no other rule), the call gets `no_prompt_action`; otherwise the block stands. Rate-limit counters are counted once per call either way. The decision message says that no user prompt is known.
+
+Sessions with a known prompt always use instruction origin, and an unknown entity there blocks as before (`untrusted_origin` from source `unknown`). Before any untrusted content, nothing is labelled `untrusted_origin`. (`off` may be written unquoted in YAML.)
 
 ## Upstreams
 

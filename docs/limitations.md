@@ -57,7 +57,7 @@ Numbers and method: [detection.md](detection.md).
 5. **A changed tool stays blocked until reviewed**, even if the server reverts to the approved description; approving a review re-pins exactly the reviewed hash.
 6. **Held calls need a client that waits.** The proxy holds a call up to 120 s and sends progress notifications every 5 s; clients with shorter request timeouts that ignore progress will give up first (the operator's later decision then has no effect).
 7. **Tool lists are fetched on every tools/list** (one request per upstream). With many upstreams this adds latency to listing; an unreachable upstream simply lists no tools.
-8. **Without a user prompt, instruction origin is all or nothing.** MCP clients do not send the user's prompt. With `instruction_origin: strict` (default), an address the user typed in their client is blocked once untrusted content is in context; with `off`, a paraphrased or reassembled attacker address is no longer caught (a copied one still is). Sending `X-Tripwire-User-Prompt` avoids both.
+8. **Without a user prompt, unknown addresses need a human.** MCP clients do not send the user's prompt. With the defaults (`instruction_origin: strict`, `no_prompt_action: require_approval`), once untrusted content is in context, an address of unknown origin, whether the user typed it or an injection paraphrased it, is held for operator approval; an approver who waves through a paraphrased attacker address defeats the check. `no_prompt_action: block` blocks instead (and also blocks what the user typed); `instruction_origin: off` allows it. A copied attacker address is blocked in every mode. Sending `X-Tripwire-User-Prompt` avoids the trade-off.
 
 ## SDK adapters (`tripwire-guard`)
 

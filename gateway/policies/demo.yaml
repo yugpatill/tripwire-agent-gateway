@@ -7,6 +7,8 @@ defaults:
   suspicious_threshold: 0.5
   # Sessions with no known user prompt (MCP clients rarely send one): strict | off.
   instruction_origin: strict
+  # strict + no prompt known: a block caused only by that becomes this (or block).
+  no_prompt_action: require_approval
 
 # How heuristics and the classifier combine (docs/detection.md):
 #   corroborated: a classifier hit counts only alongside a heuristic signal; the

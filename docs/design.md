@@ -279,6 +279,7 @@ defaults:
   classifier_threshold: 0.85
   suspicious_threshold: 0.5
   instruction_origin: strict         # strict | off: sessions with no known user prompt (MCP)
+  no_prompt_action: require_approval # require_approval | block: a block caused only by that
 detection:
   combine: corroborated              # corroborated | either (see docs/detection.md)
   classifier_shadow: false           # true: classify every result in the background, log only

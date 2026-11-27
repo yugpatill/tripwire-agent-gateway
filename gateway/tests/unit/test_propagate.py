@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import uuid
 
-from tripwire.taint.labels import Provenance, TaggedValue
-from tripwire.taint.propagate import ValueIndex, label_args, tag_content, tag_text
+from tripwire.taint.labels import USER_SOURCE, Provenance, TaggedValue
+from tripwire.taint.propagate import NO_PROMPT_SOURCE, ValueIndex, label_args, tag_content, tag_text
 from tripwire.taint.store import SessionState
 
 WEB = Provenance(
@@ -77,8 +77,20 @@ def test_instruction_origin_user_entity_not_tainted() -> None:
 
 
 def test_untrusted_origin_for_unknown_entity_with_tainted_context() -> None:
-    res = _label({"to": "someone@else.io"}, [tag_text(PAGE, WEB)], untrusted_ctx=True)
+    prompt = tag_text(
+        "Summarize the page",
+        Provenance(
+            source=USER_SOURCE, trust="trusted", confidentiality="internal", event_id=uuid.uuid4()
+        ),
+    )
+    res = _label({"to": "someone@else.io"}, [prompt, tag_text(PAGE, WEB)], untrusted_ctx=True)
     assert sources(res, "to") == {("unknown", "untrusted_origin")}
+
+
+def test_untrusted_origin_without_prompt_is_marked_as_such() -> None:
+    res = _label({"to": "someone@else.io"}, [tag_text(PAGE, WEB)], untrusted_ctx=True)
+    assert sources(res, "to") == {(NO_PROMPT_SOURCE, "untrusted_origin")}
+    assert res.edges == []  # type: ignore[attr-defined]  # no data-flow edge from "nowhere"
 
 
 def test_no_untrusted_origin_in_clean_context() -> None:

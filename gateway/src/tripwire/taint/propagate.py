@@ -38,6 +38,10 @@ from tripwire.taint.store import SessionState
 MIN_TEXT_MATCH = 8  # characters; shorter residual text is too ambiguous to match
 MAX_LEAF_CHARS = 50_000
 UNKNOWN_SOURCE = "unknown"
+# untrusted_origin given only because no user prompt is known for the session
+# (instruction_origin: strict). The policy's `no_prompt_action` decides what a
+# block caused by these labels alone becomes (default: require_approval).
+NO_PROMPT_SOURCE = "unknown:no_prompt"
 
 MatchKind = Literal["exact", "normalized", "entity", "user_prompt", "origin"]
 
@@ -127,7 +131,7 @@ class _Collector:
 
     def add(self, p: Provenance, matched: str, kind: MatchKind) -> None:
         self._labels.setdefault((p.source, p.trust, p.confidentiality, p.event_id), p)
-        if p.source != UNKNOWN_SOURCE:
+        if p.source not in (UNKNOWN_SOURCE, NO_PROMPT_SOURCE):
             self._edges.append(
                 DataFlowEdge(
                     from_event=p.event_id,
@@ -188,7 +192,7 @@ def label_args(
                 if not sources and check_origin:
                     add(
                         Provenance(
-                            source=UNKNOWN_SOURCE,
+                            source=UNKNOWN_SOURCE if index.prompt_known else NO_PROMPT_SOURCE,
                             trust="untrusted_origin",
                             confidentiality="public",
                             event_id=to_event,

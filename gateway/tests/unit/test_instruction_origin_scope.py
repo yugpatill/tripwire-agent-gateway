@@ -72,21 +72,69 @@ async def test_user_typed_address_allowed_when_prompt_is_provided(origin: str) -
 async def test_prompt_added_later_counts_as_user_given() -> None:
     engine = Engine(InMemoryTaintStore(), MemoryRecorder(), demo_with("strict"))
     sid = await _after_fetch(engine, "")
-    assert await _send(engine, sid, TYPED) == "block"  # strict: unknown origin
+    assert await _send(engine, sid, TYPED) == "require_approval"  # strict, no prompt
     assert await engine.add_user_prompt(sid, f"Now email it to {TYPED}") is True
     assert await engine.add_user_prompt(sid, f"Now email it to {TYPED}") is False  # dedupe
     assert await _send(engine, sid, TYPED) == "allow"
 
 
-async def test_no_prompt_strict_blocks_and_off_allows_unknown_address() -> None:
+async def test_no_prompt_strict_needs_approval_and_off_allows_unknown_address() -> None:
     strict = Engine(InMemoryTaintStore(), MemoryRecorder(), demo_with("strict"))
     off = Engine(InMemoryTaintStore(), MemoryRecorder(), demo_with("off"))
     d = await strict.check_call(
         call(await _after_fetch(strict, ""), "email__send_email", to=TYPED, subject="s", body="b")
     )
-    assert d.action == "block" and d.rule_id == "no-untrusted-recipient"
+    assert d.action == "require_approval" and d.rule_id == "no-untrusted-recipient"
+    assert "No user prompt is known" in d.message
     assert any(p.trust == "untrusted_origin" for p in d.arg_labels["to"])
     assert await _send(off, await _after_fetch(off, ""), TYPED) == "allow"
+
+
+def demo_no_prompt_action(action: str) -> CompiledPolicy:
+    text = (POLICIES / "demo.yaml").read_text()
+    assert "  no_prompt_action: require_approval\n" in text
+    text = text.replace("  no_prompt_action: require_approval\n", f"  no_prompt_action: {action}\n")
+    policy = policy_from(text)
+    assert policy.doc.defaults.no_prompt_action == action
+    return policy
+
+
+async def test_no_prompt_action_block_keeps_the_old_behaviour() -> None:
+    engine = Engine(InMemoryTaintStore(), MemoryRecorder(), demo_no_prompt_action("block"))
+    assert await _send(engine, await _after_fetch(engine, ""), TYPED) == "block"
+
+
+async def test_no_prompt_action_default_is_require_approval() -> None:
+    assert policy_from("version: 1\n").doc.defaults.no_prompt_action == "require_approval"
+
+
+@pytest.mark.parametrize("action", ["require_approval", "block"])
+async def test_value_matched_attacker_address_still_blocks_without_prompt(action: str) -> None:
+    """Copied from untrusted content (value match), not merely of unknown origin."""
+    engine = Engine(InMemoryTaintStore(), MemoryRecorder(), demo_no_prompt_action(action))
+    sid = await _after_fetch(engine, "")
+    d = await engine.check_call(
+        call(sid, "email__send_email", to="attacker@evil.io", subject="s", body="b")
+    )
+    assert d.action == "block" and d.rule_id == "no-untrusted-recipient"
+
+
+async def test_softened_block_does_not_double_count_rate_limits() -> None:
+    store = InMemoryTaintStore()
+    engine = Engine(store, MemoryRecorder(), demo_with("strict"))
+    sid = await _after_fetch(engine, "")
+    actions = [
+        (
+            await engine.check_call(
+                call(sid, "bank__transfer", to_account="5566778899001122", amount=10)
+            )
+        ).action
+        for _ in range(4)
+    ]
+    # Unknown payee without a prompt: approval for the first three; the fourth
+    # exceeds transfer-rate-limit (3 per session), which blocks on its own.
+    assert actions == ["require_approval"] * 3 + ["block"]
+    assert await store.incr_counter(sid, "rule:transfer-rate-limit") == 5
 
 
 async def test_strict_is_the_default() -> None:
