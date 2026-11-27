@@ -1,0 +1,74 @@
+name: sdk
+
+# tripwire-guard (gateway/sdk): lint, types, unit tests, then every adapter's
+# injection test and every example end to end against a real gateway.
+on:
+  push:
+    branches: [main]
+    paths: ["gateway/**", ".github/workflows/sdk.yml"]
+  pull_request:
+    paths: ["gateway/**", ".github/workflows/sdk.yml"]
+
+jobs:
+  sdk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tripwire
+          POSTGRES_PASSWORD: tripwire
+          POSTGRES_DB: tripwire
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tripwire" --health-interval 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://tripwire:tripwire@localhost:5432/tripwire
+      REDIS_URL: redis://localhost:6379/0
+      TRIPWIRE_POLICY_PATH: policies/demo.yaml
+      TRIPWIRE_CLASSIFIER_DIR: ""
+      TRIPWIRE_URL: http://127.0.0.1:8000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - name: SDK lint, types, unit tests
+        working-directory: gateway/sdk
+        run: |
+          uv sync --frozen --all-extras
+          uv run ruff check .
+          uv run ruff format --check .
+          uv run mypy
+          uv run pytest -q -m "not live"
+      - name: Start the gateway
+        working-directory: gateway
+        run: |
+          uv sync --frozen
+          uv run alembic upgrade head
+          uv run uvicorn tripwire.main:app --host 127.0.0.1 --port 8000 --log-level warning > /tmp/gw.log 2>&1 &
+          echo "GW_PID=$!" >> "$GITHUB_ENV"
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:8000/readyz >/dev/null && break; sleep 1; done
+          curl -fs http://127.0.0.1:8000/readyz
+          echo "TRIPWIRE_API_KEY=$(uv run tripwire keys create --name sdk-ci | grep -oE 'tw_[A-Za-z0-9_-]+')" >> "$GITHUB_ENV"
+      - name: Adapter injection tests (live gateway)
+        working-directory: gateway/sdk
+        run: uv run pytest -q -m live
+      - name: Examples end to end (scripted models)
+        working-directory: gateway/sdk
+        run: |
+          for e in anthropic_tool_runner langgraph_agent openai_agents_agent; do
+            echo "::group::$e"
+            uv run python "examples/$e.py"
+            echo "::endgroup::"
+          done
+      - name: Stop the gateway
+        if: always()
+        run: kill "$GW_PID" 2>/dev/null; cat /tmp/gw.log | tail -20 || true
