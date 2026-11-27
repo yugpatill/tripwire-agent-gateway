@@ -129,3 +129,22 @@ Server-side p50 / p95:
 ### Apple M3 note
 
 PyTorch on macOS uses Accelerate (the AMX coprocessor) and ran DeBERTa-v3-base fp32 at 426 ms per 512 tokens. ONNX Runtime cannot use AMX and took 1,200 ms in fp32 and 573 ms in int8. Linux servers have no AMX, so the x86 runner numbers are the ones to plan with.
+
+## MCP proxy overhead
+
+`tools/call` with a small result (`files__read_file`, 38 bytes), sequential, each over one persistent SDK client: directly on the mock upstream versus through Tripwire `/v1/mcp` (agent key, explicit session, demo policy, classifier loaded). Script: [`gateway/scripts/bench_mcp_proxy.py`](../gateway/scripts/bench_mcp_proxy.py); x86 numbers from the `mcp-proxy` job of [`bench-api`](../.github/workflows/bench-api.yml) ([run](https://github.com/yugpatill/tripwire-agent-gateway/actions/runs/45940229504)).
+
+| Where | n | direct p50 / p95 | through Tripwire p50 / p95 | **overhead p50 / p95** |
+|---|---|---|---|---|
+| x86 runner (AMD EPYC 7763, AVX2; uvicorn, Postgres, Redis on the runner) | 500 | 1.7 / 1.8 ms | 17.3 / 20.3 ms | **15.7 / 18.4 ms** |
+| Apple M3, compose stack (Docker Desktop, dev container with `--reload`) | 300 | 1.3 / 2.3 ms | 13.8 / 17.9 ms | **12.4 / 15.6 ms** |
+
+Where the time goes (M3, from the stored events of the run): the policy and detection work is about 1 ms per call (`check/call` 0.41 ms p50, `check/result` 0.60 ms p50; heuristics only, no classifier for a result with no signal). The rest is the second MCP hop (Tripwire to upstream, about the same as the direct call), two event inserts in Postgres, the pin lookup, the session lookup in Redis, and the extra SSE response framing. Candidates if it matters: cache pin status in process with invalidation on the approval event, and write events off the request path in batches (the audit trail would then lag by up to one batch).
+
+## Open items
+
+- **PII scanning dominates 50 KB results without a heuristic signal.** Under the corroborated rule the classifier no longer runs there, and Presidio (patterns mode) takes about 95 ms p50 of the 139 ms server time on the AVX2 runner (heuristics about 54 ms, secrets about 10 ms). Options to evaluate later, against the PII recall on the benign corpus:
+  1. run only the structured recognizers Tripwire acts on (email, phone, card, IBAN, SSN-like IDs) with precompiled regexes, without Presidio's per-recognizer passes;
+  2. scan the first and last N KB plus windows around matches of a cheap prefilter (`@`, digit runs), like the classifier's window selection;
+  3. run PII off the request path when it can only raise confidentiality and no rule depends on it before the next call (the label must still land before the next `check/call`);
+  4. cache PII results by content hash for repeated tool outputs.

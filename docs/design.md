@@ -248,24 +248,25 @@ Orderings: trust `trusted < untrusted < untrusted_origin < suspicious`; confiden
 | POST | /sessions | `{agent_name, user_prompt, mode: "enforce"\|"shadow"}` | `{session_id}` (stores prompt entities for instruction origin) |
 | POST | /check/call | `ToolCall` | `Decision` |
 | POST | /check/result | `ToolResult` | `{content_redacted, labels, detectors, decision}` |
-| POST | /mcp | MCP Streamable HTTP | MCP protocol (proxy mode) |
+| POST | /mcp | MCP Streamable HTTP (agent key) | MCP protocol (proxy mode); see [mcp.md](mcp.md) |
 | GET | /sessions | filters | paginated list |
 | GET | /sessions/{id}/trace | | ordered events with labels and data-flow edges `[{from_event, to_event, arg, matched_value, label}]` |
-| GET | /approvals | `?status=pending` | list |
-| POST | /approvals/{id} | `{decision: "approve"\|"deny", scope: "once"\|"session"}` | updated approval |
+| GET | /approvals | `?status=pending` (operator key) | list (kinds `call`, `tool_quarantine`, `tool_change`) |
+| GET | /approvals/{id} | operator key, or the agent key that owns the session | approval |
+| POST | /approvals/{id} | `{decision: "approve"\|"deny", scope: "once"\|"session"}` (operator key) | updated approval; 409 if already decided or expired |
 | GET | /policies/active | | `{version, yaml}` |
 | PUT | /policies/active | `{yaml}` | validated new version, or 422 with line/column errors |
 | POST | /policies/test | `{yaml, since_hours}` | `[{event_id, old_action, new_action, rule_id}]` |
-| GET | /tools | | tools with pin status, risk score, flagged spans |
-| POST | /tools/{name}/approve | | re-pin after review |
+| GET | /tools | (operator key) | tools with pin status, risk score, findings, pending change |
+| POST | /tools/{name}/approve | (operator key) | re-pin the latest manifest after review |
 | GET | /metrics/summary | | counts by action, top rules, latency percentiles |
 | GET | /evals | | eval runs imported from `evals/results` |
 | POST | /playground/run | `{scenario_id}` or `{custom: {...}}` | `{run_id, unprotected_session_id, protected_session_id}` |
 | GET | /playground/runs/{run_id} | | stored run for replay |
-| WS | /stream?session_id=... or ?channel=console | | JSON events `{type, session_id, payload}` |
+| WS | /stream | operator key in `Authorization` (Phase 5); session and console channels with browser auth come with the web app | JSON events `{type, approval}` (`approval.created`, `approval.decided`) |
 | GET | /healthz, /readyz, /metrics (Prometheus) | | |
 
-**Auth.** Agents send `Authorization: Bearer tw_<prefix>_<secret>`; keys are argon2id-hashed in `api_keys`, created with `tripwire keys create --name <agent>`, and a session is bound to the key that created it. The console uses a JWT in an httpOnly cookie. Playground endpoints are public but rate limited (5 runs per IP per hour, 200 per day globally) and capped to a cheap model.
+**Auth.** Agents send `Authorization: Bearer tw_<prefix>_<secret>`; keys are argon2id-hashed in `api_keys`, created with `tripwire keys create --name <agent> [--role operator]`, and a session is bound to the key that created it. Keys have a role: `agent` keys use sessions, checks and `/mcp`; `operator` keys can also decide approvals and review tools, so an agent can never approve its own held calls. The console uses a JWT in an httpOnly cookie. Playground endpoints are public but rate limited (5 runs per IP per hour, 200 per day globally) and capped to a cheap model.
 
 ### 6.3 Policy YAML schema
 
@@ -313,7 +314,7 @@ Rules evaluate in file order; the first `block` wins, then `require_approval`, t
 | 2 | Policy engine and taint tracking | Untrusted recipient from a fetched page is blocked by `no-untrusted-recipient`; the user's own recipient is allowed; 40+ unit tests |
 | 3 | Detection pipeline: normalization, heuristics, secrets, Presidio PII, ONNX classifier wrapper, gated LLM judge | Detector unit tests; heuristics < 2 ms and classifier < 50 ms p95 on a 2 KB input; classifier < 150 ms p95 on 50 KB; runtime image < 700 MB with the classifier |
 | 4 | Classifier training (`ml/`): dataset with held-out attack family, MiniLM-L6 and DeBERTa-v3-small fine-tunes (Prompt Guard 2 22M zero-shot as a reference), threshold at 1% FPR, int8 ONNX export | Artifact folder loads in the gateway; `metrics.json` published; accuracy vs latency reported per model; default published as a release asset and baked into the image |
-| 5 | MCP proxy (SDK v2), manifest security, approvals | Namespaced tools; poisoned tool quarantined; rug pull blocked; approval granted via API completes the held call |
+| 5 | MCP proxy (SDK v2), manifest security, approvals | Namespaced tools; poisoned tool quarantined; rug pull blocked; approval granted via API completes the held call; denied or timed-out approval is an error to the client (integration tests with the SDK client, manual check with the MCP Inspector: [mcp.md](mcp.md)) |
 | 6 | `tripwire-guard` SDK adapters | Examples run end to end against a local gateway |
 | 7 | Playground backend: 6 preset scenarios, dual run, custom attacks, cost controls | Every preset succeeds unprotected and is stopped protected, verified automatically |
 | 8 | Web app: playground, console (overview, events, traces, approvals, tools, policy editor, evals), auth | `pnpm build` passes; Lighthouse ≥ 90 on `/` |
@@ -322,7 +323,7 @@ Rules evaluate in file order; the first `block` wins, then `require_approval`, t
 
 ## 8. Environment variables
 
-See [`.env.example`](../.env.example). Gateway: `DATABASE_URL`, `REDIS_URL`, `TRIPWIRE_POLICY_PATH`, `TRIPWIRE_CLASSIFIER_DIR`, `TRIPWIRE_LLM_JUDGE_ENABLED`, `TRIPWIRE_MODE`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_READONLY_PASSWORD`, `CORS_ORIGINS`, `PLAYGROUND_PROVIDER`, `PLAYGROUND_MODEL`, `PLAYGROUND_DAILY_RUN_CAP`, provider API keys, `OTEL_EXPORTER_OTLP_ENDPOINT`. Web: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL`. Evals: `TRIPWIRE_URL`, `TRIPWIRE_API_KEY`.
+See [`.env.example`](../.env.example). Gateway: `DATABASE_URL`, `REDIS_URL`, `TRIPWIRE_POLICY_PATH`, `TRIPWIRE_CLASSIFIER_DIR`, `TRIPWIRE_MCP_UPSTREAMS`, `TRIPWIRE_APPROVAL_TIMEOUT_S`, `TRIPWIRE_MCP_ALLOWED_HOSTS`, `TRIPWIRE_MCP_ALLOWED_ORIGINS`, `TRIPWIRE_LLM_JUDGE_ENABLED`, `TRIPWIRE_MODE`, `JWT_SECRET`, `ADMIN_EMAIL`, `ADMIN_PASSWORD`, `DEMO_READONLY_PASSWORD`, `CORS_ORIGINS`, `PLAYGROUND_PROVIDER`, `PLAYGROUND_MODEL`, `PLAYGROUND_DAILY_RUN_CAP`, provider API keys, `OTEL_EXPORTER_OTLP_ENDPOINT`. Web: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_WS_URL`. Evals: `TRIPWIRE_URL`, `TRIPWIRE_API_KEY`.
 
 ## 9. Integration pitfalls
 

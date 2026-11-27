@@ -31,3 +31,12 @@ The image makes no outbound calls at startup or while serving: spaCy's model is 
 docker build --target runtime -t tripwire-gateway gateway
 docker image inspect tripwire-gateway --format '{{.Size}}'
 ```
+
+## MCP proxy
+
+- **Upstreams**: mount a YAML file and point `TRIPWIRE_MCP_UPSTREAMS` at it (format in [mcp.md](mcp.md#upstreams)). The image contains `/app/mcp/upstreams.docker.yaml` (the compose mock servers) and `upstreams.example.yaml`. Secrets for upstreams go in the gateway's environment and are referenced as `${VAR}`.
+- **Host check**: `/v1/mcp` rejects requests whose `Host` (and browser `Origin`) is not allow-listed (DNS-rebinding protection from the MCP SDK). Behind a real hostname, set `TRIPWIRE_MCP_ALLOWED_HOSTS` (for example `tripwire.example.com,tripwire.example.com:*`) and `TRIPWIRE_MCP_ALLOWED_ORIGINS`; otherwise clients get 421.
+- **Operator keys**: create them with `tripwire keys create --name <person> --role operator` and keep them out of agent configs. Agent keys cannot decide approvals.
+- **Approval timeout**: `TRIPWIRE_APPROVAL_TIMEOUT_S` (default 120). Put the gateway behind a proxy whose idle timeout is longer than this, or held calls are cut off.
+- **Mock servers**: the compose service `mock-mcp` (port 9100, bound to 127.0.0.1) is for the playground and demos only.
+
