@@ -1,0 +1,92 @@
+{
+  "model": "deberta-v3-small",
+  "base_model": "microsoft/deberta-v3-small",
+  "zero_shot": false,
+  "evaluated_artifact": "model.int8.onnx",
+  "batch": 1,
+  "threshold": 0.02623,
+  "threshold_rule": "lowest score with FPR <= 1% on val benign tool outputs (n=2777)",
+  "val": {
+    "n": 4020,
+    "n_injection": 1243,
+    "precision": 0.9787,
+    "recall": 0.9968,
+    "f1": 0.9876,
+    "fpr": 0.0097,
+    "fpr_hard_negatives": 0.0307,
+    "recall_by_family": {
+      "deepset": 0.7778,
+      "direct_override": 1.0,
+      "exfiltration": 1.0,
+      "jailbreak": 1.0,
+      "markdown_exfil": 1.0,
+      "tool_hijack": 1.0
+    },
+    "roc_auc": 0.9998,
+    "pr_auc": 0.9996
+  },
+  "test": {
+    "n": 4180,
+    "n_injection": 1285,
+    "precision": 0.9761,
+    "recall": 0.9868,
+    "f1": 0.9814,
+    "fpr": 0.0107,
+    "fpr_hard_negatives": 0.0363,
+    "recall_by_family": {
+      "deepset": 0.7667,
+      "direct_override": 1.0,
+      "exfiltration": 0.9957,
+      "jailbreak": 0.9964,
+      "markdown_exfil": 1.0,
+      "tool_hijack": 0.9964
+    },
+    "roc_auc": 0.9992,
+    "pr_auc": 0.9986,
+    "at_threshold_0.5": {
+      "precision": 0.9913,
+      "recall": 0.9805,
+      "f1": 0.9859,
+      "fpr": 0.0038
+    }
+  },
+  "test_ood": {
+    "n": 4295,
+    "n_injection": 1400,
+    "precision": 0.9781,
+    "recall": 0.9871,
+    "f1": 0.9826,
+    "fpr": 0.0107,
+    "fpr_hard_negatives": 0.0363,
+    "recall_by_family": {
+      "role_markers": 0.9871
+    },
+    "roc_auc": 0.9993,
+    "pr_auc": 0.9988,
+    "at_threshold_0.5": {
+      "precision": 0.992,
+      "recall": 0.9779,
+      "f1": 0.9849,
+      "fpr": 0.0038
+    }
+  },
+  "gateway_phase3_corpus": {
+    "n": 383,
+    "n_injection": 133,
+    "precision": 0.7972,
+    "recall": 0.8571,
+    "f1": 0.8261,
+    "fpr": 0.116,
+    "fpr_hard_negatives": 0.0333,
+    "recall_by_family": {
+      "base64": 1.0,
+      "direct_override": 1.0,
+      "hidden_unicode": 0.5,
+      "html_comments": 0.8182,
+      "markdown_exfil": 1.0,
+      "role_markers": 0.8182
+    },
+    "roc_auc": 0.924,
+    "pr_auc": 0.8782
+  }
+}
