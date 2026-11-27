@@ -137,8 +137,13 @@ jobs:
       - name: Benchmark MCP proxy overhead
         run: |
           uv run python -m tripwire.playground.mock_servers --port 9100 > /tmp/mock.log 2>&1 &
+          mock_pid=$!
           printf 'upstreams:\n  files: {url: "http://127.0.0.1:9100/files/mcp"}\n' > "$TRIPWIRE_MCP_UPSTREAMS"
           uv run uvicorn tripwire.main:app --host 127.0.0.1 --port 8000 --log-level warning > /tmp/gw.log 2>&1 &
+          gw_pid=$!
           for i in $(seq 1 60); do curl -fs http://127.0.0.1:8000/readyz >/dev/null && curl -fs http://127.0.0.1:9100/healthz >/dev/null && break; sleep 1; done
           export TRIPWIRE_API_KEY=$(uv run tripwire keys create --name bench | grep -oE 'tw_[A-Za-z0-9_-]+')
           uv run python -u scripts/bench_mcp_proxy.py -n 500 | tee -a "$GITHUB_STEP_SUMMARY"
+          # Stop the servers, or their uv processes hold the cache lock and the
+          # setup-uv post step fails.
+          kill "$gw_pid" "$mock_pid"; wait "$gw_pid" "$mock_pid" || true
