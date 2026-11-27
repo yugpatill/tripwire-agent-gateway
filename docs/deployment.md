@@ -14,6 +14,7 @@ Full deployment guide (Vercel web, Railway/Fly.io gateway, Helm chart) is writte
 | 2026-11-21 | 3 | **460 MB** unpacked (674 MB in `docker image ls`) | Debug symbols stripped from extension modules (−184 MB); bundled test suites, pip/setuptools and phonenumbers geodata removed (−68 MB); + provider SDK for the LLM judge |
 | 2026-11-21 | 3 | **641 MB** unpacked, with the classifier | + DeBERTa-v3-small int8 ONNX (172 MB). With DeBERTa-v3-base (243 MB) it would be about 712 MB. |
 | 2026-11-27 | 4 | **502 MB** unpacked on x86 CI (484 MB arm64; 187 MB compressed) | + default classifier MiniLM-L6 int8 (23 MB) baked in from the `classifier-minilm-l6-v1` release asset. With the opt-in DeBERTa-v3-small instead: about 650 MB. |
+| 2026-11-27 | 5 | **521 MB** unpacked on x86 CI (192 MB compressed) | + MCP SDK v2 (`mcp`, `mcp-types`, `httpx2`, `sse-starlette`, `jsonschema`), rapidfuzz |
 
 Target: under **700 MB** with the classifier (the CI hard limit stays 900 MB): met.
 
