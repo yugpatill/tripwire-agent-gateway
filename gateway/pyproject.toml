@@ -44,7 +44,7 @@ packages = ["src/tripwire"]
 line-length = 100
 target-version = "py312"
 src = ["src", "tests"]
-extend-exclude = ["alembic/versions"]
+extend-exclude = ["alembic/versions", "sdk"]  # sdk/ is linted by its own project
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "ASYNC", "S", "RUF"]

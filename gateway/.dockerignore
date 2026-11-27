@@ -1,7 +1,9 @@
-.venv
-__pycache__
-.pytest_cache
-.mypy_cache
-.ruff_cache
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
 .coverage
 .env
+# The tripwire-guard SDK is a separate package; the gateway image does not need it.
+sdk
