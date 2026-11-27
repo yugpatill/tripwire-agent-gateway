@@ -1,7 +1,8 @@
 name: bench-classifier
 
-# Manual only: measures detector latency on a GitHub-hosted x86-64 Linux runner
-# with untrained DeBERTa-v3 int8 probes (real architecture, random weights).
+# Manual only: measures detector latency on a GitHub-hosted x86-64 Linux runner,
+# either for a published artifact (artifact_url + artifact_sha256) or for
+# untrained int8 probes (real architecture, random weights).
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +12,12 @@ on:
       threads:
         description: "Space-separated intra-op thread counts"
         default: "1 2"
+      artifact_url:
+        description: "Release tarball of a trained artifact (skips the probes when set)"
+        default: ""
+      artifact_sha256:
+        description: "SHA-256 of artifact_url (required with it)"
+        default: ""
 
 jobs:
   bench:
@@ -26,12 +33,36 @@ jobs:
         run: |
           lscpu | grep -E "Model name|^CPU\(s\)" | tee -a "$GITHUB_STEP_SUMMARY"
           echo "SIMD: $(grep -o -w -E 'avx2|avx512f|avx512_vnni|avx_vnni' /proc/cpuinfo | sort -u | tr '\n' ' ')" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Download artifact
+        if: inputs.artifact_url != ''
+        env:
+          URL: ${{ inputs.artifact_url }}
+          SHA: ${{ inputs.artifact_sha256 }}
+        run: |
+          test -n "$SHA" || { echo "artifact_sha256 is required" >&2; exit 1; }
+          curl -fsSL "$URL" -o /tmp/artifact.tar.gz
+          echo "$SHA  /tmp/artifact.tar.gz" | sha256sum -c -
+          mkdir -p ml/artifacts/release && tar -xzf /tmp/artifact.tar.gz -C ml/artifacts/release --strip-components=1
+          echo "Artifact: $URL" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Benchmark artifact
+        if: inputs.artifact_url != ''
+        working-directory: gateway
+        run: |
+          uv sync --frozen
+          for t in ${{ inputs.threads }}; do
+            echo "### release artifact, threads=$t" | tee -a "$GITHUB_STEP_SUMMARY"
+            TRIPWIRE_CLASSIFIER_DIR=../ml/artifacts/release uv run python -u scripts/bench_detectors.py --threads "$t" \
+              | grep -E "^\||CPU" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          ls -l ../ml/artifacts/release/model.int8.onnx | awk '{printf "model.int8.onnx: %.0f MB\n\n", $5/1e6}' | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Export probes
+        if: inputs.artifact_url == ''
         working-directory: ml
         run: |
           uv sync --frozen
           for m in ${{ inputs.models }}; do uv run python scripts/latency_probe.py --base "$m"; done
-      - name: Benchmark
+      - name: Benchmark probes
+        if: inputs.artifact_url == ''
         working-directory: gateway
         run: |
           uv sync --frozen
