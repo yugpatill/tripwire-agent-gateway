@@ -13,9 +13,22 @@ What the result means for the session:
 
 | Finding | Effect |
 |---|---|
-| injection score ≥ `suspicious_threshold` (0.5), not cleared by the judge | result labelled `suspicious`; session marked suspicious (`session_has: suspicious` rules fire) |
+| injection verdict (see "Combining heuristics and classifier"), not cleared by the judge | result labelled `suspicious`; session marked suspicious (`session_has: suspicious` rules fire) |
 | secret found | content returned to the agent has the secret replaced by `[REDACTED:<kind>]`; result confidentiality raised to `secret`; the original value stays in the taint store, so a later leak still matches |
 | PII found | result confidentiality raised to at least `confidential` |
+
+## Combining heuristics and classifier
+
+Policy setting `detection.combine` (h = heuristic score, c = classifier score calibrated so the artifact threshold is 0.5, t = `suspicious_threshold`, default 0.5):
+
+| `combine` | Suspicious when | Classifier runs | Phase 3 corpus (MiniLM-L6): FPR / recall, held-out FPR / recall |
+|---|---|---|---|
+| **`corroborated`** (default) | h ≥ t, or (0 < h and c ≥ t) | only when 0 < h < t, on the windows that overlap a heuristic span plus one neighbour on each side (at most 8) | 0.8% / 99.2%, 0% / 96.7% |
+| `either` | max(h, c) ≥ t | on every result, unless h ≥ `classifier_threshold` (early exit) | 7.6% / 100%, 7.5% / 100% |
+
+The corroborated rule keeps the classifier from acting alone, because on its own it flags raw HTML, terse API fields and imperative docs (see [ml/README.md](../ml/README.md#phase-3-corpus-analysis-minilm-l6)). It also takes the classifier off the hot path: 231 of the 250 benign Phase 3 samples (92%) have no heuristic signal at all and are never classified. The price is attacks that trip no heuristic at all ([limitations.md](limitations.md), item 12).
+
+`detection.classifier_shadow: true` additionally classifies every result in the background after the decision, with the default window selection. The score is logged (`classifier.shadow`, with `would_flag` and the actual verdict) and appended to the stored event as a `classifier_shadow` detector, for the dashboard. It never changes a decision. At most 4 shadow runs are in flight; extra results are not shadow-classified (`classifier.shadow_dropped`).
 
 Tool-call arguments are scanned for secrets. The `redact` policy action masks only the detected secret spans when there are any, and the whole argument otherwise.
 
@@ -78,4 +91,4 @@ Fixes made after the baseline run, all general rather than per-sample: base64 ru
 
 ### Classifier on this corpus (Phase 4, 2026-11-26)
 
-The trained MiniLM-L6 classifier alone flags 18 of 250 benign samples (7.2%) and 101 of 133 attacks at its artifact threshold. Combined with the heuristics as the gateway currently does (suspicious when either fires): 7.6% false positives, 100% recall. Requiring a heuristic signal for a classifier hit (`h ≥ 0.5 OR (c ≥ threshold AND h > 0)`): 0.8% false positives, 99.2% recall (held-out: 0/40 and 29/30). The false positives are raw HTML with analytics boilerplate, terse API fields, and imperative or warning sentences in docs. Details, examples and the retrain plan: [ml/README.md](../ml/README.md#phase-3-corpus-analysis-minilm-l6). Reproduce with `gateway/scripts/analyze_classifier.py`.
+The trained MiniLM-L6 classifier alone flags 18 of 250 benign samples (7.2%) and 101 of 133 attacks at its artifact threshold. With `combine: either` (suspicious when either fires): 7.6% false positives, 100% recall. With the default `combine: corroborated`: 0.8% false positives, 99.2% recall (held-out: 0/40 and 29/30). The false positives are raw HTML with analytics boilerplate, terse API fields, and imperative or warning sentences in docs. Details, examples and the retrain plan: [ml/README.md](../ml/README.md#phase-3-corpus-analysis-minilm-l6). Reproduce with `gateway/scripts/analyze_classifier.py`.

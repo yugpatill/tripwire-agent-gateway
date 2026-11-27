@@ -23,3 +23,5 @@ Files: `E` = `tests/unit/test_policy_eval.py` (rule evaluator, synthetic facts),
 | action precedence | E `test_precedence_block_beats_earlier_approval`, E `test_precedence_approval_beats_redact` |
 
 `defaults.classifier_threshold` and `defaults.suspicious_threshold` are validated in Phase 2 (`test_thresholds_must_be_ordered`) and used by the Phase 3 detectors.
+
+`detection.combine` and `detection.classifier_shadow`: schema defaults and validation in `test_policy_schema.py` (`test_detection_defaults_to_corroborated_without_shadow`, `test_detection_settings_parse_and_reject_unknown_values`); both rules through the engine in `test_detection_policy.py` (`test_policy_combine_setting_drives_the_verdict`, shadow tests); classifier gating and verdicts per rule in `test_detectors.py` (`test_combine_rules_with_a_classifier_hit`, `test_corroborated_runs_classifier_only_on_weak_signals`, `test_either_runs_classifier_on_everything_below_early_exit`).

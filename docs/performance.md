@@ -105,6 +105,27 @@ GitHub-hosted runners are not all the same CPU. Phase 4 runs landed on AMD EPYC 
 
 The trained model runs at the same speed as its probe, as expected. The 2 KB target (< 50 ms p95) is met on the Xeon and missed on both EPYCs (63 ms and 100 ms); the 50 KB target (< 150 ms) is missed everywhere. MiniLM-L6 is about 6x faster than DeBERTa-v3-small on the same CPU. The full-pipeline 50 KB figure includes up to 4 focus windows (12 in total) and PII.
 
+### `/v1/check/result` end to end, per detection setting (Phase 4 review)
+
+Measured by the manual [`bench-api`](../.github/workflows/bench-api.yml) workflow ([run](https://github.com/yugpatill/tripwire-agent-gateway/actions/runs/45936464133)): one uvicorn worker, Postgres and Redis as services, the published MiniLM-L6 classifier with 2 threads, script [`gateway/scripts/bench_check_result.py`](../gateway/scripts/bench_check_result.py). Requests are sequential; each uses a fresh session. Runner: AMD EPYC 7763, 4 vCPU, AVX2 only (the slowest CPU seen in the GitHub pool). The server column is the gateway's own `decision.latency_ms` (detection, tagging, Redis, Postgres write); the round trip adds HTTP on loopback.
+
+Server-side p50 / p95:
+
+| Workload | `corroborated` (default) | `either` | `corroborated` + `classifier_shadow` |
+|---|---|---|---|
+| Phase 3 corpus mix (383 results: 250 benign, 133 attacks) | **4.6 / 8.5 ms** (classifier ran on 6%) | 7.1 / 27.3 ms (72%) | 4.7 / 9.6 ms |
+| 2 KB, no heuristic signal | **10.9 / 11.8 ms** (not classified) | 104 / 115 ms | 16.2 / 20.5 ms |
+| 2 KB, one weak signal | 102 / 114 ms | 99 / 110 ms | 186 / 212 ms |
+| 50 KB, no heuristic signal | **139 / 228 ms** (not classified) | 637 / 727 ms | 179 / 280 ms |
+| 50 KB, one weak signal (in the middle) | **366 / 471 ms** (3–4 windows) | 707 / 1115 ms | 727 / 1109 ms |
+| 50 KB, realistic mix (several weak signals) | 695 / 868 ms (up to 8 windows) | 924 / 1009 ms | 1125 / 1284 ms |
+
+- **The corroborated rule takes the classifier off the hot path.** On the Phase 3 mix it ran on 6% of results (the ones with a weak signal), and p95 dropped from 27 ms to 8.5 ms, inside the 30 ms budget for the pipeline without classifier. A 2 KB output with no signal costs 11 ms instead of 104 ms, and 50 KB 139 ms instead of 637 ms.
+- **A weak signal still costs a classifier pass.** 2 KB with one weak signal is the same in both modes (both windows are classified). At 50 KB, signal-only windows (3–4) halve the cost against `either`, which classifies 8–12.
+- **Without the classifier, 50 KB is dominated by PII and heuristics** (about 95 ms and 54 ms p50 on this CPU).
+- **The shadow classifier is not free on a small box.** It runs off the request path, but on 4 vCPUs it competes with live requests for CPU: under this back-to-back load it raised p50 by 2% (Phase 3 mix) to 99% (50 KB with a weak signal) and dropped 113 of 648 shadow runs (at most 4 in flight). Enable it on hosts with spare cores or moderate traffic.
+- Absolute numbers are from the AVX2 runner; on AVX-512 VNNI runners the classifier is about 1.6x faster (see the trained MiniLM-L6 table above).
+
 ### Apple M3 note
 
 PyTorch on macOS uses Accelerate (the AMX coprocessor) and ran DeBERTa-v3-base fp32 at 426 ms per 512 tokens. ONNX Runtime cannot use AMX and took 1,200 ms in fp32 and 573 ms in int8. Linux servers have no AMX, so the x86 runner numbers are the ones to plan with.
