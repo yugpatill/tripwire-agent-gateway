@@ -29,15 +29,38 @@ def _with_keys[T](fn: Callable[..., Awaitable[T]]) -> T:
 
 def _keys(args: argparse.Namespace) -> int:
     if args.keys_command == "create":
-        key = _with_keys(lambda repo: repo.create(args.name, args.role))
-        print(f"Created {key.role} API key {key.id} for {key.name!r}.")
+        from tripwire.auth.api_keys import ScopeRefused, resolve_session_scope
+        from tripwire.config import get_settings
+
+        production = get_settings().tripwire_env == "production"
+        try:
+            scope, forced = resolve_session_scope(
+                args.session_scope, production, args.force_key_scope
+            )
+        except ScopeRefused as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        if forced:
+            print(
+                "WARNING: session scope 'key' forced in production. All MCP traffic of this "
+                "key shares one taint session; use this key for exactly one user.",
+                file=sys.stderr,
+            )
+        key = _with_keys(lambda repo: repo.create(args.name, args.role, scope, forced))
+        print(
+            f"Created {key.role} API key {key.id} for {key.name!r} "
+            f"(MCP session scope: {key.session_scope})."
+        )
         print("Store it now; it cannot be shown again:\n")
         print(key.token)
         return 0
     if args.keys_command == "list":
         for rec in _with_keys(lambda repo: repo.list()):
             status = "revoked" if rec.revoked else "active"
-            print(f"{rec.id}  tw_{rec.prefix}_...  {status:7}  {rec.role:8}  {rec.name}")
+            scope = rec.session_scope + ("!" if rec.session_scope_forced else "")
+            print(
+                f"{rec.id}  tw_{rec.prefix}_...  {status:7}  {rec.role:8}  {scope:10}  {rec.name}"
+            )
         return 0
     if args.keys_command == "revoke":
         ok = _with_keys(lambda repo: repo.revoke(uuid.UUID(args.key_id)))
@@ -61,6 +84,17 @@ def main(argv: list[str] | None = None) -> int:
         choices=["agent", "operator"],
         default="agent",
         help="operator keys may also decide approvals and review tools",
+    )
+    create.add_argument(
+        "--session-scope",
+        choices=["key", "connection", "header"],
+        default=None,
+        help="MCP taint session scope (default: key in development, header in production)",
+    )
+    create.add_argument(
+        "--force-key-scope",
+        action="store_true",
+        help="allow --session-scope key when TRIPWIRE_ENV=production (single-user keys only)",
     )
     ksub.add_parser("list", help="list keys (prefix only)")
     revoke = ksub.add_parser("revoke", help="revoke a key by id")

@@ -111,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.authenticator,
             settings.tripwire_mcp_allowed_hosts,
             settings.tripwire_mcp_allowed_origins,
+            production=settings.tripwire_env == "production",
         )
         log.info(
             "gateway.startup",

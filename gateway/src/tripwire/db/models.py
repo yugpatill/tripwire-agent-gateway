@@ -18,6 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
+from sqlalchemy import false as sa_false
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -153,6 +154,12 @@ class ApiKey(Base):
     # agent: may call /v1/check, /v1/sessions, /v1/mcp. operator: may also decide
     # approvals and review tools. An agent key can never approve its own held calls.
     role: Mapped[str] = mapped_column(String(16), default="agent", server_default="agent")
+    # MCP session scope (docs/mcp.md#sessions): key | connection | header.
+    session_scope: Mapped[str] = mapped_column(String(16), default="key", server_default="key")
+    # Key scope explicitly forced while TRIPWIRE_ENV=production.
+    session_scope_forced: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa_false()
+    )
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = _created_at()

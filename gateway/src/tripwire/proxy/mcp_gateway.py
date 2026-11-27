@@ -11,16 +11,21 @@ Upstream side: one SDK `Client` per configured server (`upstreams.py`).
   `block` and denied approvals become tool errors (`isError: true`) whose text
   the model sees; anything unexpected also fails closed as a tool error.
 
-Session mapping (Tripwire session = taint context):
-1. `X-Tripwire-Session: <uuid>`: an existing session owned by the API key
-   (the stdio bridge creates one per process). Use this for per-run isolation.
-2. otherwise one rolling session per API key, shared by all its connections and
-   all gateway workers (Redis), renewed on use and replaced after 1 h idle. The
-   MCP connection is deliberately *not* the boundary: a client that reconnects
-   between reading untrusted content and acting on it must not get a clean
-   taint context. Sharing taint across runs only ever makes decisions stricter.
-`X-Tripwire-User-Prompt` (percent-encoded) seeds the session's user prompt, so
-recipients the user named are trusted (instruction origin).
+Session mapping (Tripwire session = taint context), per API key `session_scope`:
+- `X-Tripwire-Session: <uuid>` (a session the key created) always wins. The stdio
+  bridge creates one per process.
+- scope `header`: the header is required; requests without it get HTTP 400.
+  Default for new keys when TRIPWIRE_ENV=production. Safe for multi-user keys.
+- scope `connection`: one session per MCP session id (handshake-era clients).
+  A client that reconnects gets a fresh, clean session; 2026-07-28 clients send
+  no session id and are rejected.
+- scope `key`: one rolling session per key (Redis, renewed on use, replaced after
+  1 h idle), shared by all its connections and workers, so reconnecting cannot
+  reset taint. Single-user keys only: taint and user-prompt entities are shared
+  across everything the key does. Development default; refused in production
+  unless the key was created with --force-key-scope.
+`X-Tripwire-User-Prompt` (percent-encoded) adds a user turn to the session, so
+entities the user named count as user-given (instruction origin).
 """
 
 from __future__ import annotations
@@ -40,6 +45,7 @@ from mcp.server.streamable_http_manager import StreamableHTTPASGIApp, Streamable
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import (
     INVALID_PARAMS,
+    INVALID_REQUEST,
     CallToolRequestParams,
     CallToolResult,
     ListToolsResult,
@@ -175,17 +181,44 @@ class McpProxy:
         principal = request.scope.get("state", {}).get(PRINCIPAL_KEY)
         if not isinstance(principal, Principal):  # the auth wrapper always sets it
             raise MCPError(INVALID_PARAMS, "unauthenticated")
+        prompt = unquote(request.headers.get(PROMPT_HEADER, "")).strip()
         explicit = request.headers.get(SESSION_HEADER)
+        sid: uuid.UUID | None
         if explicit:
             try:
-                return CallerIdentity(principal, uuid.UUID(explicit))
+                sid = uuid.UUID(explicit)
             except ValueError as exc:
                 raise MCPError(INVALID_PARAMS, f"invalid {SESSION_HEADER} header") from exc
-        key = str(principal.key_id)
+        else:
+            sid = await self._mapped_session(principal, request, prompt)
+            if sid is None:
+                raise MCPError(
+                    INVALID_REQUEST,
+                    "This API key uses session scope 'connection', but the request carries "
+                    f"no MCP session id (2026-07-28 clients have none). Send {SESSION_HEADER}.",
+                )
+        if prompt:
+            # A user turn from the client application (never from the model):
+            # entities in it count as user-given. Repeats are ignored.
+            await self.engine.add_user_prompt(sid, prompt, owner=principal.key_id)
+        return CallerIdentity(principal, sid)
+
+    async def _mapped_session(
+        self, principal: Principal, request: Request, prompt: str
+    ) -> uuid.UUID | None:
+        """Session for scope `key` (one per key) or `connection` (one per MCP session id)."""
+        if principal.session_scope == "connection":
+            mcp_session = request.headers.get("mcp-session-id")
+            if not mcp_session:
+                return None
+            key = f"{principal.key_id}:conn:{mcp_session}"
+        elif principal.session_scope == "key":
+            key = str(principal.key_id)
+        else:  # header scope without the header never gets past McpAuth
+            raise MCPError(INVALID_REQUEST, f"{SESSION_HEADER} is required for this key")
         current = await self.sessions.get(key)
         if current is not None:
-            return CallerIdentity(principal, uuid.UUID(current))
-        prompt = unquote(request.headers.get(PROMPT_HEADER, ""))
+            return uuid.UUID(current)
         sid = await self.engine.create_session(
             SessionCreate(agent_name=f"mcp:{principal.name}", user_prompt=prompt),
             owner=principal.key_id,
@@ -194,9 +227,11 @@ class McpProxy:
             # Another request or worker won the race: join its session.
             winner = await self.sessions.get(key)
             if winner is not None:
-                return CallerIdentity(principal, uuid.UUID(winner))
-        log.info("mcp.session", session_id=str(sid), key=principal.name)
-        return CallerIdentity(principal, sid)
+                return uuid.UUID(winner)
+        log.info(
+            "mcp.session", session_id=str(sid), key=principal.name, scope=principal.session_scope
+        )
+        return sid
 
     # ---------- tools/list
 
@@ -332,9 +367,18 @@ class McpProxy:
 class McpAuth:
     """ASGI wrapper: API key required, principal stored in scope['state']."""
 
-    def __init__(self, app: ASGIApp, authenticator: Any) -> None:
+    def __init__(self, app: ASGIApp, authenticator: Any, production: bool = False) -> None:
         self.app = app
         self.authenticator = authenticator
+        self.production = production
+
+    @staticmethod
+    async def _reject(send: Send, status: int, detail: str, bearer: bool = False) -> None:
+        headers = [(b"content-type", b"application/json")]
+        if bearer:
+            headers.append((b"www-authenticate", b"Bearer"))
+        await send({"type": "http.response.start", "status": status, "headers": headers})
+        await send({"type": "http.response.body", "body": json.dumps({"detail": detail}).encode()})
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -353,25 +397,41 @@ class McpAuth:
             except Exception:
                 status, detail = 503, "Auth unavailable"
         if principal is None:
-            body = json.dumps({"detail": detail}).encode()
-            await send(
-                {
-                    "type": "http.response.start",
-                    "status": status,
-                    "headers": [
-                        (b"content-type", b"application/json"),
-                        (b"www-authenticate", b"Bearer"),
-                    ],
-                }
+            await self._reject(send, status, detail, bearer=True)
+            return
+        headers = dict(scope.get("headers") or [])
+        has_session = bool(headers.get(SESSION_HEADER.encode()))
+        if principal.session_scope == "header" and not has_session:
+            await self._reject(
+                send,
+                400,
+                "This API key uses session scope 'header': every request must carry "
+                "X-Tripwire-Session (create one with POST /v1/sessions).",
             )
-            await send({"type": "http.response.body", "body": body})
+            return
+        if (
+            principal.session_scope == "key"
+            and self.production
+            and not principal.session_scope_forced
+            and not has_session
+        ):
+            await self._reject(
+                send,
+                403,
+                "Session scope 'key' is refused when TRIPWIRE_ENV=production: send "
+                "X-Tripwire-Session, or recreate the key with --session-scope header.",
+            )
             return
         scope.setdefault("state", {})[PRINCIPAL_KEY] = principal
         await self.app(scope, receive, send)
 
 
 def build_http_app(
-    proxy: McpProxy, authenticator: Any, allowed_hosts: list[str], allowed_origins: list[str]
+    proxy: McpProxy,
+    authenticator: Any,
+    allowed_hosts: list[str],
+    allowed_origins: list[str],
+    production: bool = False,
 ) -> tuple[ASGIApp, StreamableHTTPSessionManager]:
     proxy.server.streamable_http_app(
         streamable_http_path="/v1/mcp",
@@ -382,4 +442,4 @@ def build_http_app(
         ),
     )
     manager = proxy.server.session_manager
-    return McpAuth(StreamableHTTPASGIApp(manager), authenticator), manager
+    return McpAuth(StreamableHTTPASGIApp(manager), authenticator, production), manager

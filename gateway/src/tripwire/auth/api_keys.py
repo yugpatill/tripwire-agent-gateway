@@ -27,6 +27,41 @@ from tripwire.db import models as db
 KEY_PREFIX = "tw_"
 Role = Literal["agent", "operator"]
 ROLES: tuple[Role, ...] = ("agent", "operator")
+SessionScope = Literal["key", "connection", "header"]
+SESSION_SCOPES: tuple[SessionScope, ...] = ("key", "connection", "header")
+
+
+class ScopeRefused(ValueError):
+    """Key scope requested in production without --force-key-scope."""
+
+
+def resolve_session_scope(
+    requested: SessionScope | None, production: bool, force: bool = False
+) -> tuple[SessionScope, bool]:
+    """(scope, forced) for a new key.
+
+    Development defaults to `key` (one taint session per API key: single user only).
+    Production defaults to `header` (every request names its session) and refuses
+    `key` unless forced.
+    """
+    if requested is None:
+        return ("header" if production else "key"), False
+    if requested == "key" and production:
+        if not force:
+            raise ScopeRefused(
+                "session scope 'key' shares one taint session across everything the key "
+                "does; it is refused when TRIPWIRE_ENV=production. Use 'header', or pass "
+                "--force-key-scope if this key serves exactly one user."
+            )
+        return "key", True
+    return requested, False
+
+
+def _scope(value: str) -> SessionScope:
+    """Unknown scope strings degrade to the strictest scope."""
+    return value if value in ("key", "connection") else "header"  # type: ignore[return-value]
+
+
 _PREFIX_LEN = 8
 _hasher = PasswordHasher()
 
@@ -37,6 +72,8 @@ class NewKey:
     name: str
     token: str  # shown once, never stored
     role: Role = "agent"
+    session_scope: SessionScope = "key"
+    session_scope_forced: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +84,8 @@ class KeyRecord:
     key_hash: str
     revoked: bool
     role: Role = "agent"
+    session_scope: SessionScope = "key"
+    session_scope_forced: bool = False
 
 
 def _role(value: str) -> Role:
@@ -94,7 +133,17 @@ class SqlKeyRepository:
         async with self._factory() as s:
             rows = (await s.scalars(select(db.ApiKey).where(db.ApiKey.prefix == prefix))).all()
         return [
-            KeyRecord(r.id, r.name, r.prefix, r.key_hash, r.revoked, _role(r.role)) for r in rows
+            KeyRecord(
+                r.id,
+                r.name,
+                r.prefix,
+                r.key_hash,
+                r.revoked,
+                _role(r.role),
+                _scope(r.session_scope),
+                r.session_scope_forced,
+            )
+            for r in rows
         ]
 
     async def touch(self, key_id: uuid.UUID) -> None:
@@ -103,18 +152,43 @@ class SqlKeyRepository:
                 update(db.ApiKey).where(db.ApiKey.id == key_id).values(last_used_at=func.now())
             )
 
-    async def create(self, name: str, role: Role = "agent") -> NewKey:
+    async def create(
+        self,
+        name: str,
+        role: Role = "agent",
+        session_scope: SessionScope = "key",
+        session_scope_forced: bool = False,
+    ) -> NewKey:
         token, prefix = generate_token()
         key_hash = await asyncio.to_thread(hash_token, token)
-        row = db.ApiKey(name=name, prefix=prefix, key_hash=key_hash, role=role)
+        row = db.ApiKey(
+            name=name,
+            prefix=prefix,
+            key_hash=key_hash,
+            role=role,
+            session_scope=session_scope,
+            session_scope_forced=session_scope_forced,
+        )
         async with self._factory() as s, s.begin():
             s.add(row)
-        return NewKey(row.id, name, token, role)
+        return NewKey(row.id, name, token, role, session_scope, session_scope_forced)
 
     async def list(self) -> list[KeyRecord]:
         async with self._factory() as s:
             rows = (await s.scalars(select(db.ApiKey).order_by(db.ApiKey.created_at))).all()
-        return [KeyRecord(r.id, r.name, r.prefix, "", r.revoked, _role(r.role)) for r in rows]
+        return [
+            KeyRecord(
+                r.id,
+                r.name,
+                r.prefix,
+                "",
+                r.revoked,
+                _role(r.role),
+                _scope(r.session_scope),
+                r.session_scope_forced,
+            )
+            for r in rows
+        ]
 
     async def revoke(self, key_id: uuid.UUID) -> bool:
         async with self._factory() as s, s.begin():
@@ -129,6 +203,8 @@ class Principal:
     key_id: uuid.UUID
     name: str
     role: Role = "agent"
+    session_scope: SessionScope = "key"
+    session_scope_forced: bool = False
 
     @property
     def is_operator(self) -> bool:
@@ -157,7 +233,9 @@ class ApiKeyAuthenticator:
             if rec.revoked:
                 continue
             if await asyncio.to_thread(verify_hash, rec.key_hash, token):
-                principal = Principal(rec.id, rec.name, rec.role)
+                principal = Principal(
+                    rec.id, rec.name, rec.role, rec.session_scope, rec.session_scope_forced
+                )
                 if len(self._cache) >= self._size:
                     self._cache.clear()
                 self._cache[digest] = (now + self._ttl, principal)

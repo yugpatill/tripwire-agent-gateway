@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     tripwire_pii_mode: Literal["patterns", "ner", "off"] = "patterns"
     tripwire_classifier_threads: int = 2  # onnxruntime intra_op_num_threads
     tripwire_mode: Literal["enforce", "shadow"] = "enforce"
+    # Deployment environment. production: new keys default to MCP session scope
+    # `header`, and `key` scope is refused unless forced (docs/mcp.md#sessions).
+    tripwire_env: Literal["development", "production"] = "development"
 
     # MCP proxy (docs/mcp.md)
     tripwire_mcp_upstreams: str = "mcp/upstreams.yaml"
