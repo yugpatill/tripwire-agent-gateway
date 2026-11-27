@@ -42,6 +42,7 @@ tools:
       "*.env": secret
       "*/secrets/*": secret
       "*/finance/*": confidential
+      "*/customers.csv": confidential
     sink: false
     risk: low
   files__write_file:
@@ -74,6 +75,21 @@ tools:
     confidentiality: public
     sink: false
     risk: low
+  docs__search:
+    trust: untrusted    # anyone with wiki access can write an article
+    confidentiality: internal
+    sink: false
+    risk: low
+  code__get_pull_request:
+    trust: untrusted    # pull requests come from outside contributors
+    confidentiality: public
+    sink: false
+    risk: low
+  code__post_comment:
+    trust: trusted
+    confidentiality: public
+    sink: true          # a public comment can carry data out
+    risk: medium
 
 rules:
   - id: no-untrusted-recipient
