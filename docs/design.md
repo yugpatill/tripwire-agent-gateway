@@ -11,7 +11,7 @@ Author: Yugandhar Patil. License: MIT.
 Tripwire sits between an AI agent and its tools (MCP servers or SDK tool functions). For every tool definition, tool call and tool result it:
 
 1. Scans MCP tool descriptions for tool poisoning, pins them by hash (rug pull detection), and detects tool shadowing.
-2. Runs injection detection on tool outputs: heuristics, then a fine-tuned DeBERTa classifier (ONNX), then an optional LLM judge for the gray zone.
+2. Runs injection detection on tool outputs: heuristics, then a fine-tuned MiniLM-L6 classifier (int8 ONNX), then an optional LLM judge for the gray zone.
 3. Tracks data provenance (taint). Every value is labelled with source, trust and confidentiality. Labels propagate to tool call arguments via value matching, context taint and instruction-origin checks.
 4. Evaluates YAML policies against the call and its labels: `allow`, `block`, `redact`, `require_approval`, `log_only`.
 5. Redacts secrets and PII.
@@ -114,7 +114,15 @@ The SDK adapter package (`tripwire-guard`, in `gateway/sdk/`) keeps heavy framew
 | onnx | `>=1.17` |
 | evaluate, pandas, matplotlib | latest |
 
-Default classifier: **`microsoft/deberta-v3-small`** (int8 ONNX about 172 MB), chosen for latency and image size. `microsoft/deberta-v3-base` (about 243 MB) remains an option. Milestone 4 trains both and reports accuracy against latency for each before the default is final.
+Default classifier (decided in milestone 4, full table in [ml/README.md](../ml/README.md#results-phase-4-2026-11-26)): **`sentence-transformers/all-MiniLM-L6-v2` fine-tuned**, int8 ONNX 23 MB, release `classifier-minilm-l6-v1`. Opt-in "accurate" mode: **`microsoft/deberta-v3-small`** fine-tuned (172 MB), selected with `TRIPWIRE_CLASSIFIER_DIR` or the image build args `CLASSIFIER_URL`/`CLASSIFIER_SHA256`. DeBERTa-v3-base was dropped in Phase 3 (620 ms p95 on 2 KB).
+
+| int8 artifact | Size | test F1 | test_ood recall (held-out role markers) | test FPR | Phase 3 corpus FPR / recall | x86 p95, 2 threads, 2 KB / 50 KB (EPYC 9V74) |
+|---|---|---|---|---|---|---|
+| MiniLM-L6 (default) | 23 MB | 0.981 | 0.994 | 0.1% | 6.8% / 73.7% | 60–63 ms / 360–370 ms |
+| DeBERTa-v3-small | 172 MB | 0.981 | 0.987 | 1.07% | 11.6% / 85.7% | 377–414 ms / 1.51–1.54 s (probe) |
+| Prompt Guard 2 22M (zero-shot) | not evaluated (gated access not granted) | | | | | 255 ms / 1.04 s (xsmall probe, Phase 3 Xeon) |
+
+Decision rule, set before training: MiniLM-L6 is the default if its test_ood recall is within 5 points of DeBERTa-v3-small at the same FPR. It is 0.7 points *higher*, at a lower FPR, so MiniLM-L6 is the default. Known gaps: human-written injections (deepset recall 43% vs 77%), a 6.8% false-positive rate on realistic tool outputs (raw HTML, terse JSON fields, imperative docs), and DeBERTa's int8 accuracy loss. The classifier score is calibrated so the artifact's threshold maps to 0.5, the default `suspicious_threshold`.
 
 Output contract: `ml/artifacts/injection-<model>/` containing `model.int8.onnx`, `tokenizer.json`, `config.json` (with `max_length`, `threshold`, `labels`) and `metrics.json`. The gateway reads only this folder (path from `TRIPWIRE_CLASSIFIER_DIR`, default `/app/models/injection-classifier`). The default model's folder is published as a GitHub Release asset, and the Docker build downloads it and verifies its SHA-256.
 
@@ -155,7 +163,7 @@ React 19 peer-dependency warnings are resolved explicitly, never with `--force` 
 | `nreimers/MiniLM-L6-H384-uncased` | MIT | Candidate base for the default classifier (fine-tuned; weights published) |
 | `sentence-transformers/all-MiniLM-L6-v2` | Apache-2.0 | Candidate base for the default classifier (fine-tuned; weights published) |
 | `microsoft/deberta-v3-small` | MIT | Base for the opt-in accurate classifier (fine-tuned) |
-| `meta-llama/Llama-Prompt-Guard-2-22M` | **Llama 4 Community License** (gated on Hugging Face) | Zero-shot baseline, **evaluation only**. Weights and converted ONNX copies are never committed, published or shipped in the image, which keeps the license's redistribution duties (copy of the agreement, "Built with Llama" notice, NOTICE file, "Llama" prefix for derived model names) from applying. Only our metrics are published. Use remains subject to Meta's Acceptable Use Policy. |
+| `meta-llama/Llama-Prompt-Guard-2-22M` | **Llama 4 Community License** (gated on Hugging Face) | Zero-shot baseline, **evaluation only** (not yet run: access must be granted to the account that runs the notebook). Weights and converted ONNX copies are never committed, published or shipped in the image, which keeps the license's redistribution duties (copy of the agreement, "Built with Llama" notice, NOTICE file, "Llama" prefix for derived model names) from applying. Only our metrics are published. Use remains subject to Meta's Acceptable Use Policy. |
 | `deepset/prompt-injections` | Apache-2.0 | Training and evaluation data |
 | `databricks/databricks-dolly-15k` | CC BY-SA 3.0 | Benign carriers and imperative hard negatives |
 | `rajpurkar/squad_v2` | CC BY-SA 4.0 | Wikipedia paragraphs as benign web-page carriers |
@@ -301,7 +309,7 @@ Rules evaluate in file order; the first `block` wins, then `require_approval`, t
 | 1 | Skeleton and infra: repo layout, compose stack, CI, FastAPI app factory, schema migration, Next.js shell | `docker compose up` starts everything; `/healthz` ok; CI green |
 | 2 | Policy engine and taint tracking | Untrusted recipient from a fetched page is blocked by `no-untrusted-recipient`; the user's own recipient is allowed; 40+ unit tests |
 | 3 | Detection pipeline: normalization, heuristics, secrets, Presidio PII, ONNX classifier wrapper, gated LLM judge | Detector unit tests; heuristics < 2 ms and classifier < 50 ms p95 on a 2 KB input; classifier < 150 ms p95 on 50 KB; runtime image < 700 MB with the classifier |
-| 4 | Classifier training (`ml/`): dataset with held-out attack family, DeBERTa-v3 small **and** base fine-tunes, threshold at 1% FPR, int8 ONNX export | Artifact folder loads in the gateway; `metrics.json` published; accuracy vs latency reported for small and base |
+| 4 | Classifier training (`ml/`): dataset with held-out attack family, MiniLM-L6 and DeBERTa-v3-small fine-tunes (Prompt Guard 2 22M zero-shot as a reference), threshold at 1% FPR, int8 ONNX export | Artifact folder loads in the gateway; `metrics.json` published; accuracy vs latency reported per model; default published as a release asset and baked into the image |
 | 5 | MCP proxy (SDK v2), manifest security, approvals | Namespaced tools; poisoned tool quarantined; rug pull blocked; approval granted via API completes the held call |
 | 6 | `tripwire-guard` SDK adapters | Examples run end to end against a local gateway |
 | 7 | Playground backend: 6 preset scenarios, dual run, custom attacks, cost controls | Every preset succeeds unprotected and is stopped protected, verified automatically |

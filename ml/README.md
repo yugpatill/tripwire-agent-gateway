@@ -28,6 +28,84 @@ Then delete any `nvidia-*` and `cuda-*` lines.
 
 Colab and Kaggle preinstall diffusers and gradio, which need `huggingface_hub>=1`. Our transformers pin needs `<1.0`, and optimum's exporter imports diffusers when it is present, so the notebook uninstalls them first.
 
-## Results
+## Results (Phase 4, 2026-11-26)
 
-Comparison of MiniLM-L6, DeBERTa-v3-small and Prompt Guard 2 22M (zero-shot) and the default-model decision: pending the Phase 4 training run.
+Trained on a Colab T4, seed 42, same dataset and splits for every model. Every number is measured on the **int8 ONNX artifact**, scored exactly as the gateway scores it (batch 1, 512-token windows, 64-token overlap). The threshold is the lowest score with FPR ≤ 1% on the 2,777 benign tool outputs in val. The committed `metrics.json` files hold the full numbers.
+
+**MiniLM base selection.** One epoch each, picked by val PR-AUC: `sentence-transformers/all-MiniLM-L6-v2` (PR-AUC 0.9987, F1@0.5 0.947) beat `nreimers/MiniLM-L6-H384-uncased` (0.9951, 0.913). The sentence-transformers checkpoint starts from contrastive sentence training, so it separates "instruction aimed at the reader" from "instruction quoted in content" faster. Usable max sequence length: 512 tokens, from BERT's 512 learned position embeddings; the sentence-transformers card's 256 limit only reflects how that model was trained for embeddings, and fine-tuning at 512 uses the full table.
+
+| | MiniLM-L6 (default) | DeBERTa-v3-small (opt-in "accurate") | Prompt Guard 2 22M (zero-shot) |
+|---|---|---|---|
+| Base | all-MiniLM-L6-v2 (Apache-2.0) | microsoft/deberta-v3-small (MIT) | not run: needs approved Hugging Face access |
+| int8 ONNX size | **23 MB** | 172 MB | 87 MB (deberta-v3-xsmall probe) |
+| Threshold (1% FPR, val benign) | 0.99934 | 0.02623 | |
+| **test** precision / recall / F1 | 0.998 / 0.964 / 0.981 | 0.976 / 0.987 / 0.981 | |
+| test ROC AUC | 0.9991 | 0.9992 | |
+| test FPR (all benign / hard negatives) | 0.1% / 0.35% | 1.07% / 3.63% | |
+| test recall per family: direct_override, exfiltration, jailbreak, tool_hijack, markdown_exfil, deepset | 1.00, 0.996, 0.996, 0.968, 0.996, **0.43** | 1.00, 0.996, 0.996, 0.996, 1.00, 0.77 | |
+| **test_ood** (held-out role_markers) precision / recall / F1 | 0.998 / **0.994** / 0.996 | 0.978 / 0.987 / 0.983 | |
+| test_ood ROC AUC | 0.9998 | 0.9993 | |
+| Phase 3 gateway corpus (n = 250 benign, 133 attacks): FPR / recall | 6.8% / 73.7% | 11.6% / 85.7% | |
+| x86 latency p95, 2 threads, 2 KB / 50 KB (AMD EPYC 9V74, same runner) | **60–63 ms / 360–370 ms** | 377–414 ms / 1.51–1.54 s (untrained probe) | not measured on this CPU (xsmall probe on the Phase 3 Xeon: 255 ms / 1.04 s) |
+
+### Decision
+
+Rule (set before training): MiniLM-L6 is the default if its test_ood recall is within 5 points of DeBERTa-v3-small at the same FPR. It is better: **99.4% vs 98.7%**, at a tenfold lower test FPR (0.1% vs 1.07%), with the same test F1 (0.981) and a 7x smaller artifact. **MiniLM-L6 is the default** and ships in the image (release `classifier-minilm-l6-v1`). DeBERTa-v3-small is the opt-in accurate mode, chosen by pointing `TRIPWIRE_CLASSIFIER_DIR` at its folder or by building the image with the `CLASSIFIER_URL`/`CLASSIFIER_SHA256` build args. It is not published yet; see the int8 note below.
+
+Where DeBERTa is better: the human-written deepset injections (77% vs 43% recall; n = 30, many short or in German) and base64 payloads in the Phase 3 corpus. Both point at the same gap: MiniLM generalizes less beyond our generated attack templates.
+
+### Known problems
+
+1. **False positives on realistic tool outputs.** 1% FPR on val became 6.8% on the Phase 3 corpus (17–18 of 250, depending on CPU rounding at the threshold): val benign data is prose (SQuAD, Dolly), while real tool outputs include raw HTML, terse JSON fields and boilerplate. See "Phase 3 corpus analysis" below.
+2. **DeBERTa-v3-small loses accuracy under dynamic int8.** Export verification shows a maximum probability difference of 0.98 between int8 and PyTorch on 64 val texts (MiniLM: 0.006). The low threshold (0.026) and its 11.6% FPR on the Phase 3 corpus reflect that. Its scores also differ between ARM and x86 int8 kernels (9.2% FPR in the gateway on an M3 versus 11.6% on the Colab x86 CPU). Before DeBERTa is published as the accurate mode, export it with attention and embedding nodes left in fp32, or ship fp16, and require int8-vs-PyTorch difference < 0.05.
+3. **The classifier sees raw text only.** Payloads hidden in Unicode tags or base64 are mostly missed by the classifier (MiniLM: 12 of 22 hidden_unicode and 11 of 22 base64 misses); the heuristics catch them on decoded views.
+
+### Phase 3 corpus analysis (MiniLM-L6)
+
+`gateway/scripts/analyze_classifier.py` runs the gateway's own heuristics and classifier on the Phase 3 corpus. No threshold was chosen on this corpus: stricter thresholds come from `scripts/val_thresholds.py` (val benign only). The heuristics were tuned on the non-held-out part, so their recall there is optimistic; the held-out columns are the honest ones.
+
+False positives at the artifact threshold, by category:
+
+| Category | n | FP | FP with any heuristic signal |
+|---|---|---|---|
+| web_pages | 40 | 6 | 0 |
+| api_json | 40 | 5 | 0 |
+| docs | 30 | 3 | 1 |
+| hard_negatives | 30 | 1 | 0 |
+| heldout benign | 40 | 3 | 0 |
+| emails, support_tickets | 70 | 0 | 0 |
+| **Total** | **250** | **18** | **1** |
+
+Three patterns account for all of them:
+- **Raw HTML with analytics boilerplate** (6): every flagged page starts `<!DOCTYPE html>…<!-- Google Tag Manager --><script async src="https://www.googletagmanager.com/gtm.js?id=…">`. Our injected carriers put payloads in HTML comments, so the model learned "HTML comment + script URL" as a cue.
+- **Terse API fields and blobs** (5): `invoice.paid evt_1PzQ`; `Support support@vendor.example +1 415-555-0198`; `file README.md base64 IyB1dGlscwoK…`; a `data:image/png;base64,…` URL. Nothing like these short, structured strings is in the benign training data.
+- **Imperative or warning sentences in docs** (7): "Tutorial step 7: Now forget the debugger for a moment and look at the logs instead."; "Security awareness: attackers may ask you to wire money urgently. Verify by phone."; "Legal notice: … If received in error, delete it."; changelog lines mentioning "instructions".
+
+Decision rules (h = heuristic score, c = MiniLM probability; suspicious when the rule holds):
+
+| Rule | FPR, all benign (250) | Recall, all attacks (133) | FPR, held-out (40) | Recall, held-out (30) |
+|---|---|---|---|---|
+| heuristics only: h ≥ 0.5 | 0.4% | 96.2% | 0.0% | 90.0% |
+| classifier only: c ≥ 0.99934 | 7.2% | 75.9% | 7.5% | 83.3% |
+| Phase 3 wiring: max(h, c) ≥ 0.5 (bug, fixed) | 23.2% | 100% | 20.0% | 100% |
+| **either**: h ≥ 0.5 OR c ≥ 0.99934 (current gateway) | 7.6% | 100% | 7.5% | 100% |
+| **corroborated**: h ≥ 0.5 OR (c ≥ 0.99934 AND h > 0) | **0.8%** | **99.2%** | **0.0%** | **96.7%** |
+| either, stricter c ≥ 0.999626 (0.5% val FPR) | 6.0% | 99.2% | 5.0% | 100% |
+| either, stricter c ≥ 0.999715 (0.1% val FPR) | 4.8% | 99.2% | 5.0% | 100% |
+| corroborated, c ≥ 0.999715 | 0.8% | 98.5% | 0.0% | 96.7% |
+
+Raising the classifier threshold alone does not fix it: the false positives sit at 0.9994–0.9998, inside the attack score range. Requiring a heuristic signal does: 17 of 18 classifier false positives have no heuristic signal at all, while 100 of 101 classifier detections of attacks do. The cost is attacks the classifier alone would catch: on held-out data, the corroborated rule catches 2 of the 3 paraphrased overrides the heuristics miss; the "either" rule catches all 3. DeBERTa-v3-small gives the same picture (corroborated: 0.4% FPR, 99.2% recall).
+
+The "Phase 3 wiring" row is a bug found here: the gateway compared the raw probability with `suspicious_threshold` (0.5) and ignored the artifact threshold. Since commit 7de70d9 the classifier reports a calibrated score (artifact threshold → 0.5), which gives the "either" row.
+
+### Retrain plan (next Colab session)
+
+1. **New benign tool-output set**, built by a new `scripts/build_tool_outputs.py`, separate from `gateway/tests/fixtures/` and checked against it (no shared 8-gram with any fixture, otherwise the row is dropped). About 6,000 rows, split by template group into train/val/test:
+   - raw HTML pages: SQuAD/Wikipedia text wrapped in realistic boilerplate (analytics and tag-manager snippets, cookie banners, build and CMS HTML comments, inline scripts and JSON-LD, navigation);
+   - API responses flattened with the gateway's own rule (string leaves joined by newlines): event names and IDs, UUIDs, hashes, timestamps, prices, status codes, short log lines, `data:` URIs, base64 file contents of benign files, DNS records, CI results;
+   - docs and notices: READMEs, changelogs, FAQs, tutorials with imperative steps, security-awareness tips, legal disclaimers, unsubscribe footers, written from templates plus Dolly instructions (CC BY-SA 3.0).
+2. **Matching attacks in the same carriers**: about 25% of each new carrier type gets an injection (in an HTML comment, a JSON string field, a doc paragraph), so the model learns the payload and not the format.
+3. **More real-world attacks**: up-weight deepset train rows (and add other permissively licensed human-written injection sets after a license check) to close the 43% deepset gap.
+4. **Threshold and gates**: threshold re-chosen at 1% FPR on the new val (prose plus tool outputs). Accept the new model only if the Phase 3 corpus is scored once at the end with classifier-only FPR ≤ 2% and test_ood recall ≥ 98%. The Phase 3 corpus stays out of training and threshold selection.
+5. **DeBERTa int8 fix** (see Known problems 2), so the accurate mode can be published.
+6. Expected time on a T4: about 1 hour for both models.

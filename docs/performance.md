@@ -89,7 +89,21 @@ What changed in Phase 3 to bound the cost:
 - **Window cap**: at most 12 windows per input (first 4, last 4, and up to 4 around the strongest weak signals).
 - **`TRIPWIRE_CLASSIFIER_THREADS`**: default 2.
 
-Options for the model decision are in the Phase 3 review.
+The model decision is in [ml/README.md](../ml/README.md#decision).
+
+### Trained MiniLM-L6 (Phase 4, release `classifier-minilm-l6-v1`)
+
+GitHub-hosted runners are not all the same CPU. Phase 4 runs landed on AMD EPYC 9V74 (Zen 4, AVX-512 VNNI) and AMD EPYC 7763 (Zen 3, AVX2 only), not the Phase 3 Xeon 6975P-C, so artifact and probes were measured in the same job for a fair comparison. 2 threads, p50 / p95:
+
+| CPU | Model | 2 KB | 50 KB (8 windows) | Full pipeline, 2 KB / 50 KB |
+|---|---|---|---|---|
+| EPYC 9V74 | **MiniLM-L6, trained** | 58–60 / 60–63 ms | 327–334 / 360–370 ms | 66 / 69 ms; 618 / 632 ms |
+| EPYC 9V74 | MiniLM-L6, untrained probe | 58 / 61–62 ms | 316–329 / 332–334 ms | |
+| EPYC 9V74 | DeBERTa-v3-small, untrained probe | 357–372 / 377–414 ms | 1.49–1.52 / 1.51–1.54 s | |
+| EPYC 7763 (AVX2) | MiniLM-L6, trained | 93 / 100 ms | 514 / 518 ms | 101 / 103 ms; 945 / 980 ms |
+| Xeon 6975P-C (Phase 3) | MiniLM-L6, untrained probe | 39 / 40 ms | 221 / 222 ms | |
+
+The trained model runs at the same speed as its probe, as expected. The 2 KB target (< 50 ms p95) is met on the Xeon and missed on both EPYCs (63 ms and 100 ms); the 50 KB target (< 150 ms) is missed everywhere. MiniLM-L6 is about 6x faster than DeBERTa-v3-small on the same CPU. The full-pipeline 50 KB figure includes up to 4 focus windows (12 in total) and PII.
 
 ### Apple M3 note
 
