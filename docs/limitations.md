@@ -59,6 +59,14 @@ Numbers and method: [detection.md](detection.md).
 7. **Tool lists are fetched on every tools/list** (one request per upstream). With many upstreams this adds latency to listing; an unreachable upstream simply lists no tools.
 8. **Without a user prompt, instruction origin is all or nothing.** MCP clients do not send the user's prompt. With `instruction_origin: strict` (default), an address the user typed in their client is blocked once untrusted content is in context; with `off`, a paraphrased or reassembled attacker address is no longer caught (a copied one still is). Sending `X-Tripwire-User-Prompt` avoids both.
 
+## SDK adapters (`tripwire-guard`)
+
+1. **The guard only sees tools it wraps.** Tools added to an agent after wrapping, hosted tools of the OpenAI Agents SDK (refused by default) and custom `Handoff` targets (refused by default) are not checked.
+2. **LangGraph `Command` results are not scanned.** A tool that returns a `Command` is checked before it runs, but the state update it returns reaches the graph unvetted.
+3. **Instruction origin needs the user's words.** The SDK sends `user_prompt` and `user_turn()` text as trusted user input. Passing model output there would let an injection vouch for its own addresses.
+4. **Held calls block the agent.** With `require_approval` the adapter polls the gateway for up to 130 s while the tool call waits; the agent's own timeouts must allow that.
+5. **Tool names must match the policy.** A tool the policy does not know falls under `defaults.unknown_tool` (`require_approval` in the shipped policies); map framework names with `tool_names=`.
+
 ## Attacks within trusted tools
 
 Data returned by a tool the policy marks `trust: trusted` is trusted. If that tool is compromised, or relays attacker content (for example a CRM that stores whatever a web form submitted), Tripwire treats its output as trusted. Mark such tools `untrusted`.
