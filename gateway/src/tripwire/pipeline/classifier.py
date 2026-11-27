@@ -10,6 +10,13 @@ If the folder is missing or invalid the classifier is *unavailable*: a warning i
 logged once and the pipeline runs on heuristics alone. Long inputs are split
 into windows of ``max_length`` tokens with a 64-token overlap; the document score
 is the maximum window score.
+
+The reported score is *calibrated*: the artifact's ``threshold`` (chosen in ``ml/``
+for 1% FPR on benign tool outputs) maps to 0.5, the policy's default
+``suspicious_threshold``, and the probability is rescaled linearly on either side
+(see ``calibrate``). Fine-tuned models put almost every score near 0 or 1, so
+comparing the raw probability with 0.5 would ignore the threshold the artifact
+was evaluated at.
 """
 
 from __future__ import annotations
@@ -62,6 +69,16 @@ def _load_config(path: Path) -> ClassifierConfig:
     if max_length <= OVERLAP_TOKENS + 2:
         raise ValueError(f"max_length {max_length} too small for {OVERLAP_TOKENS}-token overlap")
     return ClassifierConfig(max_length, float(raw["threshold"]), labels, positive)
+
+
+def calibrate(p: float, threshold: float) -> float:
+    """Map p(injection) so that ``threshold`` lands on 0.5.
+
+    [0, t] maps linearly to [0, 0.5] and [t, 1] to [0.5, 1].
+    """
+    if p >= threshold:
+        return 0.5 + 0.5 * (p - threshold) / (1.0 - threshold) if threshold < 1.0 else 1.0
+    return 0.5 * p / threshold if threshold > 0.0 else 0.5
 
 
 class InjectionClassifier:
@@ -194,13 +211,16 @@ class InjectionClassifier:
             p = float(probs[self.config.positive_index])
             if p > best:
                 best, best_span = p, ranges[i]
+        # Floor rather than round, so a probability just below the artifact threshold
+        # can never be reported as 0.5.
+        calibrated = int(calibrate(best, self.config.threshold) * 1e6) / 1e6
         return DetectorResult(
             detector="classifier",
-            score=round(best, 4),
+            score=calibrated,
             spans=[best_span] if best > 0 else [],
             reason=(
-                f"max window p(injection)={best:.3f}; "
-                f"classified {len(selected)}/{len(starts)} windows"
+                f"max window p(injection)={best:.6f} (artifact threshold "
+                f"{self.config.threshold}); classified {len(selected)}/{len(starts)} windows"
             ),
         )
 

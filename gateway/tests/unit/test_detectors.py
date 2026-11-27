@@ -17,7 +17,7 @@ from tokenizers import Tokenizer, models, pre_tokenizers, processors
 
 from tripwire.models import DetectorResult
 from tripwire.pipeline import heuristics, secrets
-from tripwire.pipeline.classifier import OVERLAP_TOKENS, InjectionClassifier
+from tripwire.pipeline.classifier import OVERLAP_TOKENS, InjectionClassifier, calibrate
 from tripwire.pipeline.detect import DetectionPipeline, redact_secrets_in
 from tripwire.pipeline.llm_judge import MAX_JUDGE_CHARS, excerpt
 from tripwire.pipeline.normalize import count_hidden_chars, detection_views
@@ -301,8 +301,36 @@ def test_classifier_broken_artifact_is_unavailable(tmp_path: Path) -> None:
 
 
 def test_classifier_scores(clf: InjectionClassifier) -> None:
-    assert clf.score(f"the fox {TRIGGER} the dog").score > 0.99
+    # Fake model: p = sigmoid(+-5) = 0.9933 / 0.0067; artifact threshold 0.85.
+    assert clf.score(f"the fox {TRIGGER} the dog").score > 0.95
     assert clf.score("the quick brown fox").score < 0.01
+
+
+@pytest.mark.parametrize(
+    ("p", "t", "expected"),
+    [
+        (0.0, 0.9993, 0.0),
+        (0.9993, 0.9993, 0.5),
+        (1.0, 0.9993, 1.0),
+        (0.5, 0.9993, 0.2502),
+        (0.02623, 0.02623, 0.5),
+        (0.3, 0.5, 0.3),
+        (0.75, 0.5, 0.75),
+    ],
+)
+def test_classifier_calibration_maps_artifact_threshold_to_half(
+    p: float, t: float, expected: float
+) -> None:
+    assert calibrate(p, t) == pytest.approx(expected, abs=1e-4)
+
+
+def test_classifier_just_below_threshold_is_not_suspicious(tmp_path: Path) -> None:
+    build_fake_artifact(tmp_path)
+    cfg = json.loads((tmp_path / "config.json").read_text())
+    cfg["threshold"] = 0.99331  # just above the fake model's 0.993307
+    (tmp_path / "config.json").write_text(json.dumps(cfg))
+    c = InjectionClassifier(tmp_path)
+    assert c.score(f"the fox {TRIGGER} the dog").score < 0.5
 
 
 def test_classifier_chunks_long_input_and_takes_max(
@@ -319,7 +347,7 @@ def test_classifier_chunks_long_input_and_takes_max(
     words = ["the"] * 400 + [TRIGGER] + ["dog"] * 50
     text = " ".join(words)
     r = clf.score(text)
-    assert r.score > 0.99
+    assert r.score > 0.95
     assert len(lengths) > 1 and max(lengths) <= 80
     s, e = r.spans[0]
     assert TRIGGER in text[s:e]
@@ -442,7 +470,7 @@ def test_long_input_middle_trigger_missed_without_focus(clf: InjectionClassifier
 def test_long_input_middle_trigger_found_with_focus(clf: InjectionClassifier) -> None:
     text, span = _long_text_with_trigger_in_middle()
     r = clf.score(text, focus=[span])
-    assert r.score > 0.99
+    assert r.score > 0.95
 
 
 class CountingClassifier:
