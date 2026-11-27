@@ -9,9 +9,12 @@ import redis.asyncio as aioredis
 import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.routing import Route
+from starlette.types import Receive, Scope, Send
 
 from tripwire import __version__
-from tripwire.api import check, health, sessions
+from tripwire.api import approvals, check, health, sessions, stream, tools
+from tripwire.approvals.service import ApprovalService, RedisEventBus, SqlApprovalStore
 from tripwire.auth.api_keys import ApiKeyAuthenticator, SqlKeyRepository
 from tripwire.config import Settings, get_settings
 from tripwire.db.session import make_engine, make_sessionmaker
@@ -24,6 +27,9 @@ from tripwire.pipeline.pii import PiiDetector
 from tripwire.pipeline.recorder import SqlRecorder
 from tripwire.policy.compiler import CompiledPolicy, compile_policy
 from tripwire.policy.loader import PolicyError, load_policy_file
+from tripwire.proxy.guard import ManifestGuard, SqlPinStore
+from tripwire.proxy.mcp_gateway import McpProxy, RedisSessionMap, build_http_app
+from tripwire.proxy.upstreams import UpstreamPool, load_upstreams
 from tripwire.taint.store import RedisTaintStore
 
 log = structlog.get_logger(__name__)
@@ -74,17 +80,49 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.sessionmaker = make_sessionmaker(engine)
         app.state.redis = aioredis.Redis.from_url(settings.redis_url, decode_responses=True)
         app.state.authenticator = ApiKeyAuthenticator(SqlKeyRepository(app.state.sessionmaker))
+        app.state.approvals = ApprovalService(
+            SqlApprovalStore(app.state.sessionmaker),
+            RedisEventBus(app.state.redis),
+            timeout_s=settings.tripwire_approval_timeout_s,
+        )
+        detection = build_detection(settings)
         app.state.engine = Engine(
             store=RedisTaintStore(app.state.redis),
             recorder=SqlRecorder(app.state.sessionmaker),
             policy=load_active_policy(settings.tripwire_policy_path),
             default_mode=settings.tripwire_mode,
-            detection=build_detection(settings),
+            detection=detection,
+            approvals=app.state.approvals,
         )
-        log.info("gateway.startup", version=__version__, mode=settings.tripwire_mode)
+        app.state.guard = ManifestGuard(
+            SqlPinStore(app.state.sessionmaker), app.state.approvals, detection
+        )
+        pool = UpstreamPool(load_upstreams(settings.tripwire_mcp_upstreams))
+        app.state.mcp = McpProxy(
+            app.state.engine,
+            app.state.guard,
+            pool,
+            app.state.approvals,
+            settings.tripwire_approval_timeout_s,
+            sessions=RedisSessionMap(app.state.redis),
+        )
+        app.state.mcp_asgi, manager = build_http_app(
+            app.state.mcp,
+            app.state.authenticator,
+            settings.tripwire_mcp_allowed_hosts,
+            settings.tripwire_mcp_allowed_origins,
+        )
+        log.info(
+            "gateway.startup",
+            version=__version__,
+            mode=settings.tripwire_mode,
+            mcp_upstreams=sorted(pool.upstreams),
+        )
         try:
-            yield
+            async with manager.run():
+                yield
         finally:
+            await pool.aclose()
             await app.state.engine.drain_shadow()
             await app.state.redis.aclose()
             await engine.dispose()
@@ -102,6 +140,20 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(sessions.router)
     app.include_router(check.router)
+    app.include_router(approvals.router)
+    app.include_router(tools.router)
+    app.include_router(stream.router)
+
+    class McpEndpoint:
+        """ASGI endpoint (a class, so Starlette passes every method through).
+
+        The proxy is built in the lifespan (it needs the engine); routing it here
+        keeps it behind the same app, CORS and middleware as the REST API."""
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+            await app.state.mcp_asgi(scope, receive, send)
+
+    app.router.routes.append(Route("/v1/mcp", endpoint=McpEndpoint(), include_in_schema=False))
     return app
 
 

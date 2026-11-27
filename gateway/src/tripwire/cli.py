@@ -29,15 +29,15 @@ def _with_keys[T](fn: Callable[..., Awaitable[T]]) -> T:
 
 def _keys(args: argparse.Namespace) -> int:
     if args.keys_command == "create":
-        key = _with_keys(lambda repo: repo.create(args.name))
-        print(f"Created API key {key.id} for {key.name!r}.")
+        key = _with_keys(lambda repo: repo.create(args.name, args.role))
+        print(f"Created {key.role} API key {key.id} for {key.name!r}.")
         print("Store it now; it cannot be shown again:\n")
         print(key.token)
         return 0
     if args.keys_command == "list":
         for rec in _with_keys(lambda repo: repo.list()):
             status = "revoked" if rec.revoked else "active"
-            print(f"{rec.id}  tw_{rec.prefix}_...  {status:7}  {rec.name}")
+            print(f"{rec.id}  tw_{rec.prefix}_...  {status:7}  {rec.role:8}  {rec.name}")
         return 0
     if args.keys_command == "revoke":
         ok = _with_keys(lambda repo: repo.revoke(uuid.UUID(args.key_id)))
@@ -56,11 +56,28 @@ def main(argv: list[str] | None = None) -> int:
     ksub = keys.add_subparsers(dest="keys_command", required=True)
     create = ksub.add_parser("create", help="create a key and print it once")
     create.add_argument("--name", required=True, help="agent name, e.g. support-bot")
+    create.add_argument(
+        "--role",
+        choices=["agent", "operator"],
+        default="agent",
+        help="operator keys may also decide approvals and review tools",
+    )
     ksub.add_parser("list", help="list keys (prefix only)")
     revoke = ksub.add_parser("revoke", help="revoke a key by id")
     revoke.add_argument("key_id")
 
+    mcp = sub.add_parser("mcp", help="MCP proxy entry points")
+    msub = mcp.add_subparsers(dest="mcp_command", required=True)
+    msub.add_parser(
+        "stdio",
+        help="serve Tripwire over stdio (forwards to TRIPWIRE_URL/v1/mcp with TRIPWIRE_API_KEY)",
+    )
+
     args = parser.parse_args(argv)
+    if args.command == "mcp":
+        from tripwire.proxy.stdio_bridge import main as stdio_main
+
+        return stdio_main()
     if args.command == "openapi":
         from tripwire.main import create_app
 

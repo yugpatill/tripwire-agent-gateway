@@ -65,6 +65,7 @@ COPY --from=build /opt/venv /opt/venv
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY policies ./policies
+COPY mcp ./mcp
 COPY --from=classifier /models/injection-classifier /app/models/injection-classifier
 ENV TRIPWIRE_CLASSIFIER_DIR=/app/models/injection-classifier
 USER tripwire

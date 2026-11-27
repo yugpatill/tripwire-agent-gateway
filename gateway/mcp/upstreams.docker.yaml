@@ -1,0 +1,9 @@
+# Upstream MCP servers for the compose stack: the playground's mock servers.
+# Format: docs/mcp.md. Names become the tool namespace (email__send_email).
+upstreams:
+  email: {url: "http://mock-mcp:9100/email/mcp"}
+  files: {url: "http://mock-mcp:9100/files/mcp"}
+  web: {url: "http://mock-mcp:9100/web/mcp"}
+  bank: {url: "http://mock-mcp:9100/bank/mcp"}
+  calculator: {url: "http://mock-mcp:9100/calculator/mcp"}
+  weather: {url: "http://mock-mcp:9100/weather/mcp"}

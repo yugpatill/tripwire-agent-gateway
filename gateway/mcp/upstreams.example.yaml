@@ -1,0 +1,11 @@
+# Copy to mcp/upstreams.yaml (or point TRIPWIRE_MCP_UPSTREAMS at your file).
+# Each entry is one upstream MCP server; its name becomes the tool namespace.
+upstreams:
+  # Streamable HTTP server; ${VAR} is read from the gateway's environment.
+  github:
+    url: "https://api.githubcopilot.com/mcp/"
+    headers: {Authorization: "Bearer ${GITHUB_TOKEN}"}
+  # stdio server launched by the gateway (it does not inherit the gateway's env).
+  filesystem:
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/data"]

@@ -24,6 +24,17 @@ class Settings(BaseSettings):
     tripwire_classifier_threads: int = 2  # onnxruntime intra_op_num_threads
     tripwire_mode: Literal["enforce", "shadow"] = "enforce"
 
+    # MCP proxy (docs/mcp.md)
+    tripwire_mcp_upstreams: str = "mcp/upstreams.yaml"
+    tripwire_approval_timeout_s: float = 120.0
+    # Host/Origin allow-lists for /v1/mcp (DNS-rebinding protection of the SDK).
+    tripwire_mcp_allowed_hosts: list[str] = Field(
+        default_factory=lambda: ["localhost:*", "127.0.0.1:*", "[::1]:*", "gateway:*"]
+    )
+    tripwire_mcp_allowed_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:*", "http://127.0.0.1:*", "http://[::1]:*"]
+    )
+
     jwt_secret: SecretStr = SecretStr("change-me")
     admin_email: str = ""
     admin_password: SecretStr = SecretStr("")
@@ -42,7 +53,9 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
 
-    @field_validator("cors_origins", mode="before")
+    @field_validator(
+        "cors_origins", "tripwire_mcp_allowed_hosts", "tripwire_mcp_allowed_origins", mode="before"
+    )
     @classmethod
     def _split_origins(cls, v: object) -> object:
         if isinstance(v, str) and not v.strip().startswith("["):

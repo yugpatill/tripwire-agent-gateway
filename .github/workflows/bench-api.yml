@@ -85,3 +85,60 @@ jobs:
             kill $pid; wait $pid || true
             echo "shadow log lines: $(grep -c '"classifier.shadow"' "/tmp/gateway-$v.log" || true), dropped: $(grep -c shadow_dropped "/tmp/gateway-$v.log" || true)" | tee -a "$GITHUB_STEP_SUMMARY"
           done
+
+  mcp-proxy:
+    # Overhead of the MCP proxy: tools/call with a small result, direct vs through Tripwire.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tripwire
+          POSTGRES_PASSWORD: tripwire
+          POSTGRES_DB: tripwire
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tripwire" --health-interval 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://tripwire:tripwire@localhost:5432/tripwire
+      REDIS_URL: redis://localhost:6379/0
+      TRIPWIRE_CLASSIFIER_DIR: ${{ github.workspace }}/classifier
+      TRIPWIRE_CLASSIFIER_THREADS: "2"
+      TRIPWIRE_POLICY_PATH: policies/demo.yaml
+      TRIPWIRE_MCP_UPSTREAMS: /tmp/upstreams.yaml
+    defaults:
+      run:
+        working-directory: gateway
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - name: CPU info
+        run: lscpu | grep -E "Model name|^CPU\(s\)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Download classifier
+        env:
+          URL: ${{ inputs.artifact_url }}
+          SHA: ${{ inputs.artifact_sha256 }}
+        run: |
+          curl -fsSL "$URL" -o /tmp/artifact.tar.gz
+          echo "$SHA  /tmp/artifact.tar.gz" | sha256sum -c -
+          mkdir -p "$TRIPWIRE_CLASSIFIER_DIR"
+          tar -xzf /tmp/artifact.tar.gz -C "$TRIPWIRE_CLASSIFIER_DIR" --strip-components=1
+      - run: uv sync --frozen
+      - run: uv run alembic upgrade head
+      - name: Benchmark MCP proxy overhead
+        run: |
+          uv run python -m tripwire.playground.mock_servers --port 9100 > /tmp/mock.log 2>&1 &
+          printf 'upstreams:\n  files: {url: "http://127.0.0.1:9100/files/mcp"}\n' > "$TRIPWIRE_MCP_UPSTREAMS"
+          uv run uvicorn tripwire.main:app --host 127.0.0.1 --port 8000 --log-level warning > /tmp/gw.log 2>&1 &
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:8000/readyz >/dev/null && curl -fs http://127.0.0.1:9100/healthz >/dev/null && break; sleep 1; done
+          export TRIPWIRE_API_KEY=$(uv run tripwire keys create --name bench | grep -oE 'tw_[A-Za-z0-9_-]+')
+          uv run python -u scripts/bench_mcp_proxy.py -n 500 | tee -a "$GITHUB_STEP_SUMMARY"

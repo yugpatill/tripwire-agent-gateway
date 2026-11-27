@@ -1,6 +1,6 @@
 # Local development stack. `docker compose up` (or `make dev`).
 # Optional tracing backend: `docker compose --profile observability up`.
-# Mock MCP servers are added in Phase 5.
+# Mock MCP servers (playground and MCP proxy demo) run in `mock-mcp`.
 
 name: tripwire
 
@@ -29,6 +29,7 @@ services:
       retries: 20
 
   gateway:
+    image: tripwire-gateway-dev
     build:
       context: ./gateway
       target: dev
@@ -40,17 +41,37 @@ services:
       REDIS_URL: redis://redis:6379/0
       TRIPWIRE_POLICY_PATH: /app/policies/demo.yaml
       TRIPWIRE_CLASSIFIER_DIR: /app/models/injection-classifier
+      TRIPWIRE_MCP_UPSTREAMS: /app/mcp/upstreams.docker.yaml
     ports: ["8000:8000"]
     volumes:
       - ./gateway/src:/app/src
       - ./gateway/alembic:/app/alembic
       - ./gateway/policies:/app/policies
+      - ./gateway/mcp:/app/mcp
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
+      mock-mcp: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz')"]
       interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Six mock MCP servers at http://mock-mcp:9100/<name>/mcp (calculator is poisoned,
+  # weather rug-pulls after its first call). POST /reset restores them.
+  mock-mcp:
+    image: tripwire-gateway-dev
+    build:
+      context: ./gateway
+      target: dev
+    command: ["python", "-m", "tripwire.playground.mock_servers", "--host", "0.0.0.0", "--port", "9100"]
+    ports: ["127.0.0.1:9100:9100"]
+    volumes:
+      - ./gateway/src:/app/src
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:9100/healthz')"]
+      interval: 3s
       timeout: 3s
       retries: 20
 
