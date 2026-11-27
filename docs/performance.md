@@ -137,6 +137,7 @@ PyTorch on macOS uses Accelerate (the AMX coprocessor) and ran DeBERTa-v3-base f
 | Where | n | direct p50 / p95 | through Tripwire p50 / p95 | **overhead p50 / p95** |
 |---|---|---|---|---|
 | x86 runner (AMD EPYC 7763, AVX2; uvicorn, Postgres, Redis on the runner) | 500 | 1.7 / 1.8 ms | 17.3 / 20.3 ms | **15.7 / 18.4 ms** |
+| x86 runner (Intel Xeon 6973P-C; [run](https://github.com/yugpatill/tripwire-agent-gateway/actions/runs/45940874992)) | 500 | 1.5 / 1.6 ms | 14.4 / 29.8 ms | **12.9 / 28.3 ms** |
 | Apple M3, compose stack (Docker Desktop, dev container with `--reload`) | 300 | 1.3 / 2.3 ms | 13.8 / 17.9 ms | **12.4 / 15.6 ms** |
 
 Where the time goes (M3, from the stored events of the run): the policy and detection work is about 1 ms per call (`check/call` 0.41 ms p50, `check/result` 0.60 ms p50; heuristics only, no classifier for a result with no signal). The rest is the second MCP hop (Tripwire to upstream, about the same as the direct call), two event inserts in Postgres, the pin lookup, the session lookup in Redis, and the extra SSE response framing. Candidates if it matters: cache pin status in process with invalidation on the approval event, and write events off the request path in batches (the audit trail would then lag by up to one batch).
