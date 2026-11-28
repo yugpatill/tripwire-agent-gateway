@@ -19,7 +19,11 @@ An agent reads things it did not write: web pages, emails, documents, tool descr
 
 ## Why I built this
 
-> **Placeholder.** I will write this section myself.
+Before Tripwire I built two agent systems: an adaptive RAG chatbot and a multi-agent code review pipeline. Both had the same blind spot. The RAG bot answered from documents I didn't write, and the review agents read pull request text from anyone who could open a PR. I had spent all my effort on making the agents useful and almost none on what happens when the content they read is written by an attacker. Once I understood indirect prompt injection, I couldn't unsee it: any agent that reads untrusted text and can call tools is one hidden instruction away from sending data somewhere it shouldn't.
+
+I wanted to find out whether that risk can be handled with engineering instead of hope. Most defenses I read about ask the model to be careful, or put another model in front of it. I wanted something deterministic I could reason about: track where every value came from, and refuse to let attacker-controlled data reach a sensitive action, no matter how convincing the text is. I also wanted to build it the way it would run at a real company, with an MCP proxy, an SDK, a policy file a security team can edit, an approval queue, and measured numbers rather than a demo that only works once.
+
+The biggest surprise was how different the numbers looked once the data stopped being clean. My injection classifier scored 98% on its own test set and caught only 74% of attacks on realistic tool outputs, while flagging about 7% of normal pages. The second surprise was that a current model resisted all six of my attack scenarios on its own, which made the case for a gateway stronger, not weaker: the protection shouldn't depend on which model you happen to run. And the most useful bugs I found came from attacking my own system, not from unit tests. Reconnecting to the gateway once wiped the taint history, which would have let the exact attack it was built to stop go through.
 
 ## How it works
 
@@ -91,7 +95,7 @@ The policy editor. Changing one rule from require approval to block, then testin
 
 <img src="docs/images/playground-mobile.png" alt="Playground on a phone" width="300">
 
-The playground at 390 px.
+The same run on a 390 px phone screen. The two sides stack, so the protected side with its blocked card comes after the unprotected one.
 
 ## Features
 
@@ -175,6 +179,8 @@ The 6.8% is the important number: 1% false positives on validation prose became 
 **`/readyz` always said the database was down.** I reused `app.state.engine` for the decision engine, so the readiness probe checked the wrong object. The SQLAlchemy engine got its own name and a live test now asserts `/readyz` is ok.
 
 **The Colab export failed silently.** The first training run trained both models and then every ONNX export failed: Colab preinstalls diffusers, which needs `huggingface_hub>=1`, my transformers pin needs `<1.0`, and the exporter imports diffusers when present. Evaluation then ran on missing artifacts. The notebook now removes the conflicting packages, installs exact pins, runs a preflight export in seconds before training, and stops at the first failed step.
+
+**A held call crashed the gateway after a restart.** While seeding demo data I held a call for approval right after restarting the gateway, and the agent's connection dropped. The MCP client library keeps internal task state that must be opened and closed by the same task, and I opened each upstream connection inside whichever request needed it first. When that request was a tool call, its handler finished with the connection's state still open and the server failed the request. My tests never saw it because they listed tools first, which happened to connect every upstream in a throwaway task. Each upstream connection now lives in a task of its own, and a regression test makes the first call from a short-lived task.
 
 ## Honest limitations
 
