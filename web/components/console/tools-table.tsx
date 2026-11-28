@@ -65,7 +65,7 @@ function ToolSheet({ tool, onClose }: { tool: ToolPinView | null; onClose: () =>
 
   return (
     <Sheet open={tool !== null} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-2xl">
+      <SheetContent side="right" className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-2xl">
         {tool && (
           <>
             <SheetHeader>

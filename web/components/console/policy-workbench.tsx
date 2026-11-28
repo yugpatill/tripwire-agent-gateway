@@ -120,7 +120,7 @@ function TestResults({ result }: { result: PolicyTestResult }) {
               <tr>
                 <th scope="col" className="px-3 py-2 font-medium">When</th>
                 <th scope="col" className="px-3 py-2 font-medium">Tool</th>
-                <th scope="col" className="px-3 py-2 font-medium">Now</th>
+                <th scope="col" className="px-3 py-2 font-medium">Recorded</th>
                 <th scope="col" className="px-3 py-2 font-medium">With this policy</th>
                 <th scope="col" className="px-3 py-2 font-medium">Session</th>
               </tr>

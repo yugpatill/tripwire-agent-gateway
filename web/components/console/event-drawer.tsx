@@ -26,7 +26,7 @@ export function EventDrawer({ event, onClose }: { event: EventView | null; onClo
   const args = (payload.args ?? {}) as Record<string, unknown>;
   return (
     <Sheet open={event !== null} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+      <SheetContent side="right" className="overflow-y-auto data-[side=right]:w-full data-[side=right]:sm:max-w-xl">
         {event && (
           <>
             <SheetHeader>

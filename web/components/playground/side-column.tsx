@@ -1,6 +1,6 @@
 "use client";
 
-import { Shield, ShieldOff } from "lucide-react";
+import { EyeOff, Shield, ShieldOff } from "lucide-react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import type {
@@ -9,6 +9,7 @@ import type {
   Side,
   SideRecord,
   ToolResultEvent,
+  ToolsListedEvent,
 } from "@/lib/playground/types";
 
 import { EnvironmentPanel } from "./environment-panel";
@@ -34,6 +35,7 @@ export function SideColumn({
   const turns = mine.filter((e): e is ModelTurnEvent => e.type === "model.turn");
   const finished = mine.some((e) => e.type === "side.finished");
   const protectedSide = side === "protected";
+  const hidden = protectedSide ? hiddenTools(events) : new Map<number, string[]>();
 
   return (
     <section className="flex min-w-0 flex-col gap-3" aria-label={protectedSide ? "Protected run" : "Unprotected run"}>
@@ -51,6 +53,7 @@ export function SideColumn({
       </div>
       {turns.map((t) => (
         <div key={t.seq} className="space-y-3">
+          <HiddenNote tools={hidden.get(t.step)} />
           {t.text && (
             <div className="rounded-lg border-l-2 border-sky-500/60 px-3 py-1 text-sm whitespace-pre-wrap">
               {t.text}
@@ -71,5 +74,33 @@ export function SideColumn({
       {!finished && <Skeleton className="h-16 w-full" />}
       {record ? <EnvironmentPanel side={record} /> : finished ? <Skeleton className="h-24 w-full" /> : null}
     </section>
+  );
+}
+
+/** Per protected step: tools the unprotected agent was offered that Tripwire newly hid. */
+function hiddenTools(events: RunEvent[]): Map<number, string[]> {
+  const listings = events.filter((e): e is ToolsListedEvent => e.type === "tools.listed");
+  const offered = new Set(listings.filter((e) => e.side === "unprotected").flatMap((e) => e.tools));
+  const out = new Map<number, string[]>();
+  const seen = new Set<string>();
+  for (const l of listings.filter((e) => e.side === "protected")) {
+    const visible = new Set(l.tools);
+    const fresh = [...offered].filter((t) => !visible.has(t) && !seen.has(t));
+    fresh.forEach((t) => seen.add(t));
+    if (fresh.length) out.set(l.step, fresh);
+  }
+  return out;
+}
+
+function HiddenNote({ tools }: { tools?: string[] }) {
+  if (!tools?.length) return null;
+  return (
+    <p className="text-muted-foreground flex items-start gap-2 rounded-lg border border-dashed px-3 py-2 text-sm">
+      <EyeOff className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <span>
+        Tripwire hid <code className="font-mono">{tools.join(", ")}</code> from the agent: the tool&apos;s description
+        failed review or changed after it was approved.
+      </span>
+    </p>
   );
 }
