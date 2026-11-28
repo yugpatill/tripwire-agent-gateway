@@ -1,4 +1,5 @@
 import Link from "next/link";
+
 import { ShieldCheck } from "lucide-react";
 
 export function SiteHeader() {
@@ -16,7 +17,7 @@ export function SiteHeader() {
           <a href="https://github.com/yugpatill/tripwire-agent-gateway" className="hover:text-foreground">
             GitHub
           </a>
-          <Link href="/console" className="hover:text-foreground">
+          <Link href="/console" prefetch={false} className="hover:text-foreground">
             Console
           </Link>
         </div>

@@ -16,7 +16,7 @@ open http://localhost:3000
 
 Guard an agent in code with the [`tripwire-guard`](gateway/sdk/README.md) SDK (Anthropic tool use, LangGraph, OpenAI Agents SDK), or use Tripwire as an MCP server: point any MCP client at `http://localhost:8000/v1/mcp` with `Authorization: Bearer tw_...`, or launch `tripwire mcp stdio` from Claude Desktop. Configs, approvals and the tool review flow: [docs/mcp.md](docs/mcp.md).
 
-Docs: [design](docs/design.md) · [MCP proxy](docs/mcp.md) · [playground](docs/playground.md) · [detection](docs/detection.md) · [performance](docs/performance.md) · [limitations](docs/limitations.md) · [deployment](docs/deployment.md)
+Docs: [design](docs/design.md) · [MCP proxy](docs/mcp.md) · [playground](docs/playground.md) · [web app and console](docs/console.md) · [detection](docs/detection.md) · [performance](docs/performance.md) · [limitations](docs/limitations.md) · [deployment](docs/deployment.md)
 
 ## Layout
 

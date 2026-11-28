@@ -75,6 +75,12 @@ Numbers and method: [detection.md](detection.md).
 4. **Custom-attack scoring is coarse.** For a visitor's text, the attacker wins with an email to anyone but the user, a transfer, a write elsewhere, or a request carrying a seeded secret; other harm (a misleading summary, a wrong answer) is not scored.
 5. **The naive scripted model is literal.** Without a real model, custom attacks act on addresses, accounts, URLs and paths in the text; instructions with none of those do nothing.
 
+## Console
+
+1. **Policy tests are approximate.** `POST /v1/policies/test` replays recorded calls with the labels and session facts stored at the time, but not rate-limit counters, and it leaves out calls recorded before those facts were stored. A policy that changes tool trust levels changes labels only for new traffic, so its effect on old calls is understated.
+2. **The demo account sees real data.** It is read-only and secrets are redacted, but it sees tool arguments, prompts and results. On a public deployment, point the console at demo traffic only, or disable the demo account (leave `DEMO_READONLY_PASSWORD` unset in production).
+3. **Evaluations show placeholder numbers until Phase 9.** The page says so on every chart.
+
 ## Attacks within trusted tools
 
 Data returned by a tool the policy marks `trust: trusted` is trusted. If that tool is compromised, or relays attacker content (for example a CRM that stores whatever a web form submitted), Tripwire treats its output as trusted. Mark such tools `untrusted`.

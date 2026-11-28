@@ -147,7 +147,7 @@ Evals never import `gateway`; they call `POST /v1/check/call` and `POST /v1/chec
 | shadcn (CLI) | latest | Components copied into `components/ui`. |
 | @xyflow/react | `^12` | React Flow (not the old `reactflow` package). |
 | recharts | `^3` | React 19 compatible (not Recharts 2). |
-| @monaco-editor/react + monaco-yaml | `^4.7` / latest | Policy editor, client side only. |
+| @monaco-editor/react + monaco-yaml | `^4.7` / latest | Policy editor, client side only. `monaco-editor` pinned `~0.52.2` (monaco-yaml 5.5 fails with 0.55 and 0.58). |
 | @tanstack/react-query | `^5` | Server state. |
 | zod | `^3.23` or `^4` | Matches what the shadcn form uses. |
 | lucide-react, next-themes, sonner | latest | Icons, dark mode default, toasts. |
@@ -252,19 +252,23 @@ Orderings: trust `trusted < untrusted < untrusted_origin < suspicious`; confiden
 | POST | /mcp | MCP Streamable HTTP (agent key) | MCP protocol (proxy mode); see [mcp.md](mcp.md) |
 | GET | /sessions | filters | paginated list |
 | GET | /sessions/{id}/trace | | ordered events with labels and data-flow edges `[{from_event, to_event, arg, matched_value, label}]` |
-| GET | /approvals | `?status=pending` (operator key) | list (kinds `call`, `tool_quarantine`, `tool_change`) |
+| GET | /approvals | `?status=pending` (console user or operator key) | list (kinds `call`, `tool_quarantine`, `tool_change`) |
 | GET | /approvals/{id} | operator key, or the agent key that owns the session | approval |
-| POST | /approvals/{id} | `{decision: "approve"\|"deny", scope: "once"\|"session"}` (operator key) | updated approval; 409 if already decided or expired |
-| GET | /policies/active | | `{version, yaml}` |
-| PUT | /policies/active | `{yaml}` | validated new version, or 422 with line/column errors |
-| POST | /policies/test | `{yaml, since_hours}` | `[{event_id, old_action, new_action, rule_id}]` |
-| GET | /tools | (operator key) | tools with pin status, risk score, findings, pending change |
-| POST | /tools/{name}/approve | (operator key) | re-pin the latest manifest after review |
+| POST | /approvals/{id} | `{decision: "approve"\|"deny", scope: "once"\|"session"}` (console admin or operator key) | updated approval; 409 if already decided or expired |
+| GET | /policies/active | | `{version, yaml, created_by, created_at}` |
+| PUT | /policies/active | `{yaml}` (admin) | `{version}`: validated new version, hot-swapped in every worker; or 422 with line/column errors |
+| POST | /policies/test | `{yaml}`, `?since_hours=168` | `{replayed, skipped, since_hours, changes: [{event_id, session_id, created_at, tool, old_action, old_rule_id, new_action, rule_id}]}` |
+| GET | /policies/schema | | JSON Schema of the policy (editor validation) |
+| GET/PUT | /policies/mode | `{mode: "enforce"\|"shadow"}` (PUT: admin) | runtime shadow mode for all agents |
+| GET | /tools | (console user or operator key) | tools with pin status, risk score, findings, pending change |
+| POST | /tools/{name}/approve | (console admin or operator key) | re-pin the latest manifest after review |
 | GET | /metrics/summary | | counts by action, top rules, latency percentiles |
-| GET | /evals | | eval runs imported from `evals/results` |
+| GET | /evals | | newest eval run per suite and config from `eval_runs`; `placeholder: true` with synthetic numbers until Phase 9 imports results |
+| POST | /auth/login, /auth/logout; GET /auth/me, /auth/demo | `{username, password}` | console session cookie; see [console.md](console.md) |
+| GET | /events, /sessions/{id}/trace, /metrics/summary | filters | console reads, secrets redacted |
 | POST | /playground/run | `{scenario_id}` or `{custom: {...}}` | `{run_id, unprotected_session_id, protected_session_id}` |
 | GET | /playground/runs/{run_id} | | stored run for replay |
-| WS | /stream | operator key in `Authorization` (Phase 5); session and console channels with browser auth come with the web app | JSON events `{type, approval}` (`approval.created`, `approval.decided`) |
+| WS | /stream | console session cookie or operator key | JSON events: `event.recorded`, `approval.created`, `approval.decided`, `policy.updated`, `mode.updated` |
 | GET | /healthz, /readyz, /metrics (Prometheus) | | |
 
 **Auth.** Agents send `Authorization: Bearer tw_<prefix>_<secret>`; keys are argon2id-hashed in `api_keys`, created with `tripwire keys create --name <agent> [--role operator]`, and a session is bound to the key that created it. Keys have a role: `agent` keys use sessions, checks and `/mcp`; `operator` keys can also decide approvals and review tools, so an agent can never approve its own held calls. Keys also have an MCP session scope (`key` | `connection` | `header`, [mcp.md](mcp.md#sessions)); `TRIPWIRE_ENV=production` makes `header` the default and refuses `key` unless forced. The console uses a JWT in an httpOnly cookie. Playground endpoints are public but rate limited (5 runs per IP per hour, a global daily cap on real-model runs, default 50) and capped to a cheap model (`claude-haiku-5-5`).
@@ -320,7 +324,7 @@ Rules evaluate in file order; the first `block` wins, then `require_approval`, t
 | 5 | MCP proxy (SDK v2), manifest security, approvals | Namespaced tools; poisoned tool quarantined; rug pull blocked; approval granted via API completes the held call; denied or timed-out approval is an error to the client (integration tests with the SDK client, manual check with the MCP Inspector: [mcp.md](mcp.md)) |
 | 6 | `tripwire-guard` SDK adapters ([gateway/sdk](../gateway/sdk/README.md)): Anthropic tool use (Tool Runner and manual loop), LangGraph (ToolNode interceptors), OpenAI Agents SDK (function tools, handoffs), each an optional extra | Examples run end to end against a local gateway; per adapter, an injected tool result leads to a blocked tool call (CI: `sdk` workflow against a real gateway) |
 | 7 | Playground backend: 6 preset scenarios, dual run, custom attacks, cost controls. **Each run uses its own Tripwire session** (`POST /v1/sessions` with the scenario's user prompt, then `X-Tripwire-Session` on every MCP request or the session id on every check), so taint and user-prompt entities never cross between runs or visitors | Every preset succeeds unprotected and is stopped protected, verified automatically ([playground.md](playground.md); `test_preset_succeeds_unprotected_and_is_stopped_protected`) |
-| 8 | Web app: playground, console (overview, events, traces, approvals, tools, policy editor, evals), auth | `pnpm build` passes; Lighthouse ≥ 90 on `/` |
+| 8 | Web app: playground, console (overview, events, traces, approvals, tools, policy editor, evals), auth ([console.md](console.md)) | `pnpm build` passes; Lighthouse ≥ 90 on `/` (measured: performance 100, accessibility 100) |
 | 9 | Evaluations: AgentDojo defense element, MCP suite, adaptive attacker, load test | Results table with real numbers, README updated from it |
 | 10 | Observability, production images, Helm, deployment, docs | Fresh clone to running stack in under 10 minutes from the README |
 
