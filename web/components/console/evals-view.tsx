@@ -48,11 +48,13 @@ export function EvalsView() {
 
   const ph = data.placeholder;
   const runs = data.runs;
-  const configs = [...new Set(runs.map((r) => r.config))].sort();
-  const suites = [...new Set(runs.map((r) => r.suite))].sort();
+  // Charts compare configurations on AgentDojo only; MCP suite and adaptive rows are in the table.
+  const agentdojo = runs.filter((r) => (r.metrics.benchmark ?? "agentdojo") === "agentdojo");
+  const configs = [...new Set(agentdojo.map((r) => r.config))].sort();
+  const suites = [...new Set(agentdojo.map((r) => r.suite))].sort();
   const bars = configs.map((c) => ({
     config: c,
-    asr: mean(runs.filter((r) => r.config === c).map((r) => num(r, "asr"))),
+    asr: mean(agentdojo.filter((r) => r.config === c).map((r) => num(r, "asr"))),
   }));
   const tooltip = {
     contentStyle: { background: "var(--popover)", border: "1px solid var(--border)", borderRadius: 8, fontSize: 12 },
@@ -135,7 +137,7 @@ export function EvalsView() {
                     key={s}
                     name={s}
                     fill={SUITE_COLORS[i % SUITE_COLORS.length]}
-                    data={runs
+                    data={agentdojo
                       .filter((r) => r.suite === s)
                       .map((r) => ({ asr: num(r, "asr"), utility: num(r, "utility"), config: r.config }))}
                   />

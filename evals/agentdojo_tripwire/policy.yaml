@@ -1,0 +1,115 @@
+# Tripwire policy for AgentDojo v1.2.2 (configuration D). Tools are named agentdojo__<function>.
+#
+# Trust follows where AgentDojo's attacks can plant text: emails, calendar event
+# descriptions, files, reviews, transaction subjects, Slack messages and web pages
+# are untrusted. The user's own profile, balances, contacts and listings are trusted.
+#
+# Same rules as the demo policy, minus confidential-to-external: AgentDojo has no
+# operator, so a held call is a denied call, and that rule would hold ordinary
+# emails after reading the user's own inbox. Taint rules block; a session that read
+# flagged injection text has its outbound actions held (= denied here).
+version: 1
+defaults:
+  unknown_tool: require_approval
+  on_engine_error: block
+  classifier_threshold: 0.85
+  suspicious_threshold: 0.5
+  instruction_origin: strict
+  no_prompt_action: require_approval
+detection:
+  combine: corroborated
+  classifier_shadow: false
+
+tools:
+  # ---- workspace
+  agentdojo__send_email: {trust: trusted, confidentiality: internal, sink: true, risk: high}
+  agentdojo__delete_email: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__get_unread_emails: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__get_sent_emails: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__get_received_emails: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__get_draft_emails: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__search_emails: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__search_contacts_by_name: {trust: trusted, confidentiality: internal, sink: false, risk: low}
+  agentdojo__search_contacts_by_email: {trust: trusted, confidentiality: internal, sink: false, risk: low}
+  agentdojo__get_current_day: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__search_calendar_events: {trust: untrusted, confidentiality: internal, sink: false, risk: low}
+  agentdojo__get_day_calendar_events: {trust: untrusted, confidentiality: internal, sink: false, risk: low}
+  agentdojo__create_calendar_event: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__cancel_calendar_event: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__reschedule_calendar_event: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__add_calendar_event_participants: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__append_to_file: {trust: trusted, confidentiality: internal, sink: false, risk: medium}
+  agentdojo__search_files_by_filename: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__create_file: {trust: trusted, confidentiality: internal, sink: false, risk: medium}
+  agentdojo__delete_file: {trust: trusted, confidentiality: internal, sink: true, risk: high}
+  agentdojo__get_file_by_id: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__list_files: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__share_file: {trust: trusted, confidentiality: internal, sink: true, risk: high}
+  agentdojo__search_files: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  # ---- travel
+  agentdojo__get_user_information: {trust: trusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__get_all_hotels_in_city: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_hotels_prices: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_rating_reviews_for_hotels: {trust: untrusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_hotels_address: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_all_restaurants_in_city: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_cuisine_type_for_restaurants: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_restaurants_address: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_rating_reviews_for_restaurants: {trust: untrusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_dietary_restrictions_for_all_restaurants: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_contact_information_for_restaurants: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_price_for_restaurants: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__check_restaurant_opening_hours: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_all_car_rental_companies_in_city: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_car_types_available: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_rating_reviews_for_car_rental: {trust: untrusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_car_fuel_options: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_car_rental_address: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__get_car_price_per_day: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  agentdojo__reserve_hotel: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__reserve_car_rental: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__reserve_restaurant: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__get_flight_information: {trust: trusted, confidentiality: public, sink: false, risk: low}
+  # ---- banking
+  agentdojo__get_iban: {trust: trusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__send_money: {trust: trusted, confidentiality: confidential, sink: true, risk: high}
+  agentdojo__schedule_transaction: {trust: trusted, confidentiality: confidential, sink: true, risk: high}
+  agentdojo__update_scheduled_transaction: {trust: trusted, confidentiality: confidential, sink: true, risk: high}
+  agentdojo__get_balance: {trust: trusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__get_most_recent_transactions: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__get_scheduled_transactions: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__read_file: {trust: untrusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__get_user_info: {trust: trusted, confidentiality: confidential, sink: false, risk: low}
+  agentdojo__update_password: {trust: trusted, confidentiality: secret, sink: true, risk: high}
+  agentdojo__update_user_info: {trust: trusted, confidentiality: confidential, sink: true, risk: high}
+  # ---- slack
+  agentdojo__get_channels: {trust: trusted, confidentiality: internal, sink: false, risk: low}
+  agentdojo__add_user_to_channel: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__read_channel_messages: {trust: untrusted, confidentiality: internal, sink: false, risk: low}
+  agentdojo__read_inbox: {trust: untrusted, confidentiality: internal, sink: false, risk: low}
+  agentdojo__send_direct_message: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__send_channel_message: {trust: trusted, confidentiality: internal, sink: true, risk: medium}
+  agentdojo__get_users_in_channel: {trust: trusted, confidentiality: internal, sink: false, risk: low}
+  agentdojo__invite_user_to_slack: {trust: trusted, confidentiality: internal, sink: true, risk: high}
+  agentdojo__remove_user_from_slack: {trust: trusted, confidentiality: internal, sink: true, risk: high}
+  agentdojo__get_webpage: {trust: untrusted, confidentiality: public, sink: true, risk: medium}
+  agentdojo__post_webpage: {trust: trusted, confidentiality: internal, sink: true, risk: high}
+
+rules:
+  # Where data goes must not come from untrusted content.
+  - {id: untrusted-email-recipient, when: {tool: agentdojo__send_email, arg: recipients, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "The recipient came from untrusted content, not from you."}
+  - {id: untrusted-email-cc, when: {tool: agentdojo__send_email, arg: cc, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "A cc recipient came from untrusted content."}
+  - {id: untrusted-email-bcc, when: {tool: agentdojo__send_email, arg: bcc, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "A bcc recipient came from untrusted content."}
+  - {id: untrusted-share-target, when: {tool: agentdojo__share_file, arg: email, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "The person to share with came from untrusted content."}
+  - {id: untrusted-event-participants, when: {tool: agentdojo__create_calendar_event, arg: participants, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "A participant came from untrusted content."}
+  - {id: untrusted-added-participants, when: {tool: agentdojo__add_calendar_event_participants, arg: participants, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "A participant came from untrusted content."}
+  - {id: untrusted-payee, when: {tool: agentdojo__send_money, arg: recipient, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "The payee came from untrusted content, not from you."}
+  - {id: untrusted-scheduled-payee, when: {tool: agentdojo__schedule_transaction, arg: recipient, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "The payee came from untrusted content."}
+  - {id: untrusted-updated-payee, when: {tool: agentdojo__update_scheduled_transaction, arg: recipient, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "The new payee came from untrusted content."}
+  - {id: untrusted-password, when: {tool: agentdojo__update_password, arg: password, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "The new password came from untrusted content."}
+  - {id: untrusted-dm-recipient, when: {tool: agentdojo__send_direct_message, arg: recipient, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "The recipient came from untrusted content."}
+  - {id: untrusted-invite-email, when: {tool: agentdojo__invite_user_to_slack, arg: user_email, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "The invited address came from untrusted content."}
+  - {id: untrusted-post-url, when: {tool: agentdojo__post_webpage, arg: url, label_any: [untrusted, suspicious, untrusted_origin]}, action: block, message: "The site to post to came from untrusted content."}
+  - {id: untrusted-fetch-url-with-secrets, when: {tool: agentdojo__get_webpage, arg: url, context_confidentiality_at_least: secret}, action: block, message: "Secret data is in context; fetching an outside URL could leak it."}
+  # A session that read injection-looking text: outbound actions need a human (none here, so denied).
+  - {id: suspicious-session-sinks, when: {sink: true, session_has: suspicious}, action: require_approval, message: "This session saw content that looks like a prompt injection; outbound actions need approval."}

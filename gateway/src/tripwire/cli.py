@@ -8,6 +8,7 @@ import json
 import sys
 import uuid
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 
 from tripwire import __version__
 
@@ -25,6 +26,32 @@ def _with_keys[T](fn: Callable[..., Awaitable[T]]) -> T:
             await engine.dispose()
 
     return asyncio.run(run())
+
+
+def _import_evals(files: list[Path]) -> int:
+    from tripwire.config import get_settings
+    from tripwire.db import models as db
+    from tripwire.db.session import make_engine, make_sessionmaker
+    from tripwire.evals_import import load_rows
+
+    rows = load_rows(files)
+
+    async def run() -> None:
+        engine = make_engine(get_settings().database_url)
+        try:
+            async with make_sessionmaker(engine)() as s, s.begin():
+                s.add_all(db.EvalRun(**r) for r in rows)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+    for r in rows:
+        m = r["metrics"]
+        print(
+            f"imported {r['suite']:10} config {r['config']}  asr {m.get('asr')}  "
+            f"utility {m.get('utility')}  ({r['source_file']})"
+        )
+    return 0
 
 
 def _keys(args: argparse.Namespace) -> int:
@@ -100,6 +127,11 @@ def main(argv: list[str] | None = None) -> int:
     revoke = ksub.add_parser("revoke", help="revoke a key by id")
     revoke.add_argument("key_id")
 
+    evals = sub.add_parser("evals", help="evaluation results")
+    esub = evals.add_subparsers(dest="evals_command", required=True)
+    imp = esub.add_parser("import", help="import evals/results/*.json into eval_runs")
+    imp.add_argument("files", nargs="+")
+
     mcp = sub.add_parser("mcp", help="MCP proxy entry points")
     msub = mcp.add_subparsers(dest="mcp_command", required=True)
     msub.add_parser(
@@ -120,6 +152,8 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "keys":
         return _keys(args)
+    if args.command == "evals":
+        return _import_evals([Path(f) for f in args.files])
     parser.print_help()
     return 0
 

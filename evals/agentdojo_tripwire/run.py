@@ -25,7 +25,6 @@ import json
 import math
 import threading
 import time
-from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
@@ -63,13 +62,14 @@ def rate(rows: list[dict[str, Any]], key: str) -> dict[str, Any]:
     return {"k": k, "n": n, "rate": round(k / n, 4) if n else None, "ci95": [round(lo, 4), round(hi, 4)]}
 
 
-def build_pipeline(config: str, llm: ClaudeLLM, defense: Callable[[], list[BasePipelineElement]] | None) -> AgentPipeline:
+def build_pipeline(config: str, llm: ClaudeLLM) -> AgentPipeline:
+    pre: list[BasePipelineElement] = []
     tools: list[BasePipelineElement] = [ToolsExecutor()]
     if config == "D":
-        if defense is None:
-            raise SystemExit("config D needs the Tripwire element (agentdojo_tripwire.element)")
-        tools = defense()
-    pipe = AgentPipeline([SystemMessage(load_system_message(None)), InitQuery(), llm, ToolsExecutionLoop([*tools, llm])])
+        from agentdojo_tripwire.element import tripwire_pre_elements, tripwire_tools_elements
+
+        pre, tools = tripwire_pre_elements(), tripwire_tools_elements()
+    pipe = AgentPipeline([SystemMessage(load_system_message(None)), InitQuery(), *pre, llm, ToolsExecutionLoop([*tools, llm])])
     pipe.name = f"{llm.model}-{config}"
     return pipe
 
@@ -87,12 +87,7 @@ def main() -> None:
 
     MODEL_NAMES.setdefault(a.model, "Claude")
     llm = ClaudeLLM(a.model, ROOT / "results" / "agentdojo" / "llm_cache", effort=a.effort)
-    defense = None
-    if a.config == "D":
-        from agentdojo_tripwire.element import tripwire_tools_elements
-
-        defense = tripwire_tools_elements
-    pipeline = build_pipeline(a.config, llm, defense)
+    pipeline = build_pipeline(a.config, llm)
     out_dir = ROOT / "results" / "agentdojo" / a.config
     out_dir.mkdir(parents=True, exist_ok=True)
     wanted = {tuple(c) for c in json.loads(a.cases.read_text())} if a.cases else None

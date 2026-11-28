@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A throwaway gateway for the MCP suite: its own database (tripwire_eval) and Redis
 # index on the compose Postgres/Redis, the compose mock MCP servers, port 8100.
-# Leaves the demo database alone. Usage, from evals/:
+# Leaves the demo database alone. EVAL_POLICY overrides the policy file. Usage, from evals/:
 #   bash mcp_suite/local_stack.sh [classifier_dir] [command ...]
 # The command (default: the MCP suite) runs from evals/ with TRIPWIRE_URL,
 # TRIPWIRE_API_KEY and MOCK_URL set.
@@ -25,7 +25,7 @@ upstreams:
 EOF
 export DATABASE_URL=postgresql+asyncpg://tripwire:tripwire@127.0.0.1:5432/tripwire_eval
 export REDIS_URL=redis://127.0.0.1:6379/5
-export TRIPWIRE_POLICY_PATH="$PWD/gateway/policies/demo.yaml"
+export TRIPWIRE_POLICY_PATH="${EVAL_POLICY:-$PWD/gateway/policies/demo.yaml}"
 export TRIPWIRE_CLASSIFIER_DIR="$CLASSIFIER"
 export TRIPWIRE_MCP_UPSTREAMS=/tmp/tripwire-eval-upstreams.yaml
 export TRIPWIRE_APPROVAL_TIMEOUT_S=2
