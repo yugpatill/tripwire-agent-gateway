@@ -28,23 +28,26 @@ Tripwire is a gateway the agent's tool traffic goes through, either as an MCP se
 ```mermaid
 flowchart LR
     agent["Agent<br/>(SDK adapter or MCP client)"]
+    tools["Tools and<br/>MCP servers"]
     subgraph gw["Tripwire gateway"]
-        guard["Manifest guard"]
-        scan["Result scanning"]
-        taint["Taint tracking"]
-        policy["Policy engine"]
-        enforce["Enforcement<br/>and approvals"]
+        guard["1. Manifest guard<br/>pin, scan, hide tools"]
+        scan["2. Result scanning<br/>heuristics, classifier, secrets"]
+        taint["3. Taint tracking<br/>source of every argument"]
+        policy["4. Policy engine<br/>YAML rules"]
+        enforce["5. Enforcement<br/>block, hold, allow"]
     end
-    tools["Tools / MCP servers"]
     store[("Postgres<br/>Redis")]
     console["Web console"]
 
-    agent -- "tools/list, tool calls" --> gw
-    gw -- "allowed calls" --> tools
-    tools -- "results" --> gw
-    gw -- "vetted results" --> agent
-    gw --- store
-    console --- gw
+    agent -- "tools/list" --> guard
+    agent -- "tool call" --> taint
+    taint --> policy --> enforce
+    enforce -- "allowed call" --> tools
+    tools -- "result" --> scan
+    scan -- "labelled result" --> agent
+    scan -. "labels" .-> taint
+    enforce --> store
+    console --> store
 ```
 
 | Stage | What it does | Typical cost |
