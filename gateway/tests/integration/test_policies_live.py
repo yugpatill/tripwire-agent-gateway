@@ -129,3 +129,12 @@ def test_test_deploy_and_shadow_mode(client: TestClient) -> None:
     assert r["action"] == "log_only"
     client.put("/v1/policies/mode", json={"mode": "enforce"})
     client.portal.call(repo.revoke, key.id)  # type: ignore[union-attr]
+
+
+def test_evals_placeholder_until_imported(client: TestClient) -> None:
+    assert client.get("/v1/evals").status_code == 401
+    login(client, demo=True)
+    body = client.get("/v1/evals").json()
+    if body["placeholder"]:  # nothing imported into eval_runs yet (Phase 9)
+        assert body["note"] and len(body["runs"]) == 24
+        assert {r["model"] for r in body["runs"]} == {"placeholder"}

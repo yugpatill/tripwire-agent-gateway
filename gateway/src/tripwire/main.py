@@ -18,6 +18,7 @@ from tripwire.api import (
     auth,
     check,
     console,
+    evals,
     health,
     playground,
     policies,
@@ -227,6 +228,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth.router)
     app.include_router(console.router)
     app.include_router(policies.router)
+    app.include_router(evals.router)
 
     class McpEndpoint:
         """ASGI endpoint (a class, so Starlette passes every method through).

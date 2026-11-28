@@ -70,3 +70,9 @@ export const testPolicy = (yaml: string, sinceHours = 168) =>
   unwrap(api.POST("/v1/policies/test", { body: { yaml }, params: { query: { since_hours: sinceHours } } }));
 export const fetchMode = () => unwrap(api.GET("/v1/policies/mode"));
 export const setMode = (mode: PolicyMode) => unwrap(api.PUT("/v1/policies/mode", { body: { mode } }));
+
+// ---------------------------------------------------------------- evaluations
+
+export type EvalResults = components["schemas"]["EvalResults"];
+export type EvalRunView = components["schemas"]["EvalRunView"];
+export const fetchEvals = () => unwrap(api.GET("/v1/evals"));

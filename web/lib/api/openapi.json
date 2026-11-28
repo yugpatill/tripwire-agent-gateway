@@ -1264,6 +1264,32 @@
           }
         ]
       }
+    },
+    "/v1/evals": {
+      "get": {
+        "tags": [
+          "evals"
+        ],
+        "summary": "List Evals",
+        "operationId": "list_evals_v1_evals_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvalResults"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -1713,6 +1739,86 @@
           "reason"
         ],
         "title": "DetectorResult"
+      },
+      "EvalResults": {
+        "properties": {
+          "placeholder": {
+            "type": "boolean",
+            "title": "Placeholder"
+          },
+          "note": {
+            "type": "string",
+            "title": "Note"
+          },
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/EvalRunView"
+            },
+            "type": "array",
+            "title": "Runs"
+          }
+        },
+        "type": "object",
+        "required": [
+          "placeholder",
+          "note",
+          "runs"
+        ],
+        "title": "EvalResults"
+      },
+      "EvalRunView": {
+        "properties": {
+          "suite": {
+            "type": "string",
+            "title": "Suite"
+          },
+          "config": {
+            "type": "string",
+            "title": "Config"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          },
+          "metrics": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Metrics"
+          },
+          "source_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source File"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "suite",
+          "config",
+          "model",
+          "metrics",
+          "source_file",
+          "created_at"
+        ],
+        "title": "EvalRunView"
       },
       "EventPage": {
         "properties": {

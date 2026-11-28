@@ -430,6 +430,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/evals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Evals */
+        get: operations["list_evals_v1_evals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -591,6 +608,32 @@ export interface components {
             ][];
             /** Reason */
             reason: string;
+        };
+        /** EvalResults */
+        EvalResults: {
+            /** Placeholder */
+            placeholder: boolean;
+            /** Note */
+            note: string;
+            /** Runs */
+            runs: components["schemas"]["EvalRunView"][];
+        };
+        /** EvalRunView */
+        EvalRunView: {
+            /** Suite */
+            suite: string;
+            /** Config */
+            config: string;
+            /** Model */
+            model: string;
+            /** Metrics */
+            metrics: {
+                [key: string]: unknown;
+            };
+            /** Source File */
+            source_file: string | null;
+            /** Created At */
+            created_at: string | null;
         };
         /** EventPage */
         EventPage: {
@@ -1721,6 +1764,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_evals_v1_evals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalResults"];
                 };
             };
         };
