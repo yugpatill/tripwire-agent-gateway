@@ -1,0 +1,102 @@
+name: bench-load
+
+# Manual only: Locust load test of /v1/check/call and /v1/check/result against a real
+# gateway (one uvicorn worker, Postgres, Redis) on a GitHub-hosted x86-64 runner, with
+# the published classifier, for 1 KB to 50 KB tool results. Results are uploaded as an
+# artifact (results/load_test.json, Locust CSVs) and printed in the job summary.
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_url:
+        description: "Classifier release tarball"
+        default: "https://github.com/yugpatill/tripwire-agent-gateway/releases/download/classifier-minilm-l6-v1/injection-minilm-l6-v1.tar.gz"
+      artifact_sha256:
+        description: "SHA-256 of artifact_url"
+        default: "e6a757991957c35f268ea998c40aa9a6ff22cea80bca224ad53f4e54c5fca719"
+      sizes_kb:
+        description: "Space-separated payload sizes in KB"
+        default: "1 10 50"
+      users:
+        description: "Concurrent simulated agents"
+        default: "20"
+      duration:
+        description: "Locust run time per size"
+        default: "60s"
+
+jobs:
+  load:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: tripwire
+          POSTGRES_PASSWORD: tripwire
+          POSTGRES_DB: tripwire
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U tripwire" --health-interval 3s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://tripwire:tripwire@localhost:5432/tripwire
+      REDIS_URL: redis://localhost:6379/0
+      TRIPWIRE_CLASSIFIER_DIR: ${{ github.workspace }}/classifier
+      TRIPWIRE_CLASSIFIER_THREADS: "2"
+      TRIPWIRE_POLICY_PATH: policies/demo.yaml
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv python install 3.12
+      - name: CPU info
+        id: cpu
+        run: |
+          cpu=$(lscpu | sed -n 's/^Model name: *//p')
+          echo "name=$cpu" >> "$GITHUB_OUTPUT"
+          lscpu | grep -E "Model name|^CPU\(s\)" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Download classifier
+        env:
+          URL: ${{ inputs.artifact_url }}
+          SHA: ${{ inputs.artifact_sha256 }}
+        run: |
+          curl -fsSL "$URL" -o /tmp/artifact.tar.gz
+          echo "$SHA  /tmp/artifact.tar.gz" | sha256sum -c -
+          mkdir -p "$TRIPWIRE_CLASSIFIER_DIR"
+          tar -xzf /tmp/artifact.tar.gz -C "$TRIPWIRE_CLASSIFIER_DIR" --strip-components=1
+      - name: Gateway
+        working-directory: gateway
+        run: |
+          uv sync --frozen
+          uv run alembic upgrade head
+          echo "TRIPWIRE_API_KEY=$(uv run tripwire keys create --name load | grep -oE 'tw_[A-Za-z0-9_-]+')" >> "$GITHUB_ENV"
+          nohup uv run uvicorn tripwire.main:app --host 127.0.0.1 --port 8000 --log-level warning > /tmp/gw.log 2>&1 &
+          echo $! > /tmp/gw.pid
+          for i in $(seq 1 60); do curl -fs http://127.0.0.1:8000/readyz >/dev/null && break; sleep 1; done
+          grep -q classifier.loaded /tmp/gw.log
+      - name: Locust
+        working-directory: evals
+        run: |
+          uv sync --frozen
+          mkdir -p results/load
+          for kb in ${{ inputs.sizes_kb }}; do
+            PAYLOAD_KB=$kb uv run locust -f load/locustfile.py --host http://127.0.0.1:8000 --headless \
+              -u ${{ inputs.users }} -r 5 -t ${{ inputs.duration }} --csv results/load/load_${kb}kb --only-summary
+          done
+          uv run python load/summarize.py results/load --users ${{ inputs.users }} --duration ${{ inputs.duration }} \
+            --cpu "${{ steps.cpu.outputs.name }}" | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Stop gateway
+        if: always()
+        run: kill "$(cat /tmp/gw.pid)" 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: load-test
+          path: |
+            evals/results/load_test.json
+            evals/results/load/

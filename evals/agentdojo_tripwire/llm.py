@@ -19,6 +19,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -64,7 +65,17 @@ class ClaudeLLM(BasePipelineElement):
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.client = client or Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"), max_retries=6)
         self.usage = Usage()
-        self.case = ""  # set by the runner, for per-case usage
+        self._lock = threading.Lock()
+        self._local = threading.local()
+
+    @property
+    def case(self) -> str:
+        """The case this thread is running, for per-case usage."""
+        return getattr(self._local, "case", "")
+
+    @case.setter
+    def case(self, value: str) -> None:
+        self._local.case = value
 
     def _request(self, system: str | None, messages: list[Any], tools: list[Any]) -> dict[str, Any]:
         req: dict[str, Any] = {
@@ -82,16 +93,18 @@ class ClaudeLLM(BasePipelineElement):
         key = hashlib.sha256(json.dumps(req, sort_keys=True, default=str).encode()).hexdigest()
         path = self.cache_dir / f"{key}.json"
         if path.exists():
-            self.usage.cached_calls += 1
+            with self._lock:
+                self.usage.cached_calls += 1
             return Message.model_validate_json(path.read_text())
         msg = self.client.messages.create(**req)
         path.write_text(msg.model_dump_json())
-        self.usage.calls += 1
-        self.usage.input_tokens += msg.usage.input_tokens
-        self.usage.output_tokens += msg.usage.output_tokens
-        tot = self.usage.by_case.setdefault(self.case, [0, 0])
-        tot[0] += msg.usage.input_tokens
-        tot[1] += msg.usage.output_tokens
+        with self._lock:
+            self.usage.calls += 1
+            self.usage.input_tokens += msg.usage.input_tokens
+            self.usage.output_tokens += msg.usage.output_tokens
+            tot = self.usage.by_case.setdefault(self.case, [0, 0])
+            tot[0] += msg.usage.input_tokens
+            tot[1] += msg.usage.output_tokens
         return msg
 
     def query(
