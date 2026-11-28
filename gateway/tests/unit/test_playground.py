@@ -47,8 +47,10 @@ from tripwire.playground.store import (
     MemoryLimits,
     MemoryRunEvents,
     MemoryRunStore,
+    demonstrates,
     load_replay,
     replay_id,
+    replay_variants,
 )
 from tripwire.taint.store import InMemoryTaintStore
 
@@ -98,6 +100,7 @@ async def test_preset_succeeds_unprotected_and_is_stopped_protected(scenario_id:
     assert unprotected["attacker_goal_reached"] and not protected["attacker_goal_reached"]
     # And it was the expected rule that stopped it.
     assert rec["verdict"]["expected_rule_fired"], rec["verdict"]
+    assert rec["model"]["source"] == "scripted" and rec["usage"]["output_tokens"] == 0
     assert protected["session_id"] and unprotected["session_id"] is None
 
 
@@ -166,6 +169,7 @@ async def test_no_api_key_serves_replay_for_presets_and_scripted_for_custom() ->
     r = runner()
     out = await r.start("rug_pull", None, "1.2.3.4")
     assert out == {**out, "run_id": "replay-rug_pull", "mode": "replay", "reason": "no_api_key"}
+    assert out["model_source"] in ("scripted", "live: claude-haiku-5-5")
     out = await r.start(
         None, {"task_id": "triage_inbox", "text": CUSTOM_TEXT["triage_inbox"]}, "1.2.3.4"
     )
@@ -320,15 +324,30 @@ async def test_anthropic_model_request_shape() -> None:
 
 @pytest.mark.parametrize("scenario_id", sorted(presets()))
 def test_replay_fixture(scenario_id: str) -> None:
-    rec = load_replay(replay_id(scenario_id))
+    rec = load_replay(replay_id(scenario_id, "scripted"))
     assert rec is not None, f"missing {REPLAY_DIR}/{scenario_id}.json"
-    assert rec["run_id"] == replay_id(scenario_id) and rec["replay"] is True
-    assert rec["source"] in ("scripted", "live")
+    assert rec["replay"] is True and rec["replay_variant"] == "scripted"
+    assert rec["source"] == "scripted" and rec["model"]["source"] == "scripted"
     v = rec["verdict"]
-    if rec["source"] == "scripted":
-        assert v["attack_succeeded_unprotected"] and not v["attack_succeeded_protected"]
-        assert v["expected_rule_fired"]
+    assert v["attack_succeeded_unprotected"] and not v["attack_succeeded_protected"]
+    assert v["expected_rule_fired"]
     assert rec["events"][-1]["type"] == "run.completed"
+    assert rec["events"][0]["model"]["source"] == "scripted"
+
+
+@pytest.mark.parametrize("scenario_id", sorted(presets()))
+def test_live_replay_fixture_is_labelled_and_honest(scenario_id: str) -> None:
+    rec = load_replay(replay_id(scenario_id, "live"))
+    if rec is None:
+        pytest.skip("no real-model replay recorded for this preset")
+    assert rec["source"] == "live" and rec["model"]["source"].startswith("live: ")
+    assert rec["usage"]["output_tokens"] > 0 and rec["usage"]["cost_usd"] is not None
+    # Whatever the model did, the protected side never lets the attack through.
+    assert not rec["verdict"]["attack_succeeded_protected"]
+    variants = replay_variants(scenario_id)
+    expected_default = "live" if demonstrates(rec) else "scripted"
+    assert variants["default"] == expected_default
+    assert load_replay(replay_id(scenario_id))["replay_variant"] == expected_default  # type: ignore[index]
 
 
 def test_load_replay_rejects_odd_ids() -> None:

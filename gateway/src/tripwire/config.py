@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     playground_provider: Literal["anthropic", "openai"] = "anthropic"
     playground_model: str = ""
-    playground_daily_run_cap: int = 200  # live (real-model) runs per UTC day, all visitors
+    playground_daily_run_cap: int = 50  # live (real-model) runs per UTC day, all visitors
     playground_ip_hourly_limit: int = 5
     playground_max_steps: int = 8
     playground_max_output_tokens: int = 4000  # per run and side

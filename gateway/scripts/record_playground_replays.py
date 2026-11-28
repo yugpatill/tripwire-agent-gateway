@@ -32,6 +32,7 @@ from tripwire.playground.store import (
     MemoryRunEvents,
     MemoryRunStore,
     replay_id,
+    replay_path,
 )
 from tripwire.taint.store import InMemoryTaintStore
 
@@ -68,20 +69,25 @@ async def main() -> int:
     for sc in presets().values():
         if a.only and sc.id not in a.only:
             continue
-        rid = replay_id(sc.id)
-        record = await runner.execute(rid, sc, "live" if live else "scripted")
+        variant = "live" if live else "scripted"
+        rid = replay_id(sc.id, variant)
+        record = await runner.execute(rid, sc, variant)
         record["recorded_at"] = datetime.now(UTC).isoformat(timespec="seconds")
         record["replay"] = True
         record["classifier"] = bool(classifier and classifier.available)
-        path = REPLAY_DIR / f"{sc.id}.json"
+        path = replay_path(sc.id, variant)
         path.write_text(json.dumps(record, indent=1, ensure_ascii=False, default=str) + "\n")
         v = record["verdict"]
         ok = v["attack_succeeded_unprotected"] and not v["attack_succeeded_protected"]
         failures += not ok
+        u = record["usage"]
+        sides = record["sides"]
         print(
-            f"{sc.id:20} source={record['source']:8} model={record['model']['name']:18} "
+            f"{sc.id:20} {record['model']['source']:24} "
             f"unprotected_attack={v['attack_succeeded_unprotected']!s:5} "
             f"protected_attack={v['attack_succeeded_protected']!s:5} "
+            f"stops={sides['unprotected']['stop']}/{sides['protected']['stop']} "
+            f"tokens={u['input_tokens']}in/{u['output_tokens']}out cost=${u['cost_usd']} "
             f"rules={v['rules_fired_protected']} -> {path.name}"
         )
     return 1 if failures and not live else 0

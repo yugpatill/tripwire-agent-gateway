@@ -84,6 +84,7 @@ class ModelTurn:
     output_tokens: int
     stop: Stop
     error: str = ""
+    input_tokens: int = 0
 
 
 class Model(Protocol):
@@ -266,16 +267,21 @@ class AnthropicModel:
         # Keep every block (thinking included) unmodified for the next request.
         self._messages.append({"role": "assistant", "content": resp.content})
         out = resp.usage.output_tokens
+        inp = (
+            resp.usage.input_tokens
+            + (resp.usage.cache_read_input_tokens or 0)
+            + (resp.usage.cache_creation_input_tokens or 0)
+        )
         if resp.stop_reason == "refusal":
-            return ModelTurn("", [], out, "refusal")
+            return ModelTurn("", [], out, "refusal", input_tokens=inp)
         text = " ".join(b.text for b in resp.content if b.type == "text").strip()
         calls = [
             ToolRequest(b.id, b.name, dict(b.input)) for b in resp.content if b.type == "tool_use"
         ]
         if calls:
-            return ModelTurn(text, calls, out, "tool_use")
+            return ModelTurn(text, calls, out, "tool_use", input_tokens=inp)
         stop: Stop = "max_tokens" if resp.stop_reason == "max_tokens" else "end_turn"
-        return ModelTurn(text, [], out, stop)
+        return ModelTurn(text, [], out, stop, input_tokens=inp)
 
 
 class OpenAIModel:
@@ -328,6 +334,7 @@ class OpenAIModel:
         msg = data["choices"][0]["message"]
         self._messages.append(msg)
         out = int(data.get("usage", {}).get("completion_tokens", 0))
+        inp = int(data.get("usage", {}).get("prompt_tokens", 0))
         calls = []
         for c in msg.get("tool_calls") or []:
             try:
@@ -336,7 +343,7 @@ class OpenAIModel:
                 args = {}
             calls.append(ToolRequest(c["id"], c["function"]["name"], args))
         text = msg.get("content") or ""
-        return ModelTurn(text, calls, out, "tool_use" if calls else "end_turn")
+        return ModelTurn(text, calls, out, "tool_use" if calls else "end_turn", input_tokens=inp)
 
 
 # ---------------------------------------------------------------- backends
@@ -436,6 +443,7 @@ class SideResult:
     output_tokens: int
     stop: Stop
     error: str = ""
+    input_tokens: int = 0
 
 
 async def run_agent(
@@ -448,15 +456,17 @@ async def run_agent(
     """At most `max_steps` model turns and `max_output_tokens` output tokens in all."""
     results: list[ToolOutcome] = []
     used = 0
+    used_in = 0
     final = ""
     for step in range(1, max_steps + 1):
         remaining = max_output_tokens - used
         if remaining < 256 and not model.scripted:
-            return SideResult(final, step - 1, used, "budget")
+            return SideResult(final, step - 1, used, "budget", input_tokens=used_in)
         tools = await backend.list_tools()
         await emit({"type": "tools.listed", "step": step, "tools": [t.name for t in tools]})
         turn = await model.turn(tools, results, min(remaining, 2048))
         used += turn.output_tokens
+        used_in += turn.input_tokens
         if turn.text:
             final = turn.text
         await emit(
@@ -466,11 +476,12 @@ async def run_agent(
                 "text": turn.text,
                 "stop": turn.stop,
                 "output_tokens": turn.output_tokens,
+                "input_tokens": turn.input_tokens,
                 "tool_calls": [{"id": c.id, "tool": c.name, "args": c.args} for c in turn.calls],
             }
         )
         if turn.stop != "tool_use":
-            return SideResult(final, step, used, turn.stop, turn.error)
+            return SideResult(final, step, used, turn.stop, turn.error, used_in)
         results = []
         for req in turn.calls:
             outcome = await backend.call(req)
@@ -491,4 +502,4 @@ async def run_agent(
                     "detectors": outcome.detectors,
                 }
             )
-    return SideResult(final, max_steps, used, "steps")
+    return SideResult(final, max_steps, used, "steps", input_tokens=used_in)

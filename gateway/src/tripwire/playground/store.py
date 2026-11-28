@@ -21,21 +21,63 @@ REPLAY_PREFIX = "replay-"
 EVENT_TTL_S = 3600
 
 
-def replay_id(scenario_id: str) -> str:
-    return f"{REPLAY_PREFIX}{scenario_id}"
+def replay_id(scenario_id: str, variant: str = "") -> str:
+    """`replay-<id>` (the default demo) or `replay-<id>-scripted` / `replay-<id>-live`."""
+    return f"{REPLAY_PREFIX}{scenario_id}" + (f"-{variant}" if variant else "")
 
 
-def load_replay(run_id: str) -> dict[str, Any] | None:
-    """A committed replay fixture (`replays/<scenario>.json`), or None."""
-    if not run_id.startswith(REPLAY_PREFIX):
-        return None
-    name = run_id[len(REPLAY_PREFIX) :]
-    if not name.replace("_", "").isalnum():
-        return None
-    path = REPLAY_DIR / f"{name}.json"
+def replay_path(scenario_id: str, variant: str) -> Path:
+    """`<id>.json` holds the scripted replay, `<id>.live.json` the real-model one."""
+    return REPLAY_DIR / (f"{scenario_id}.live.json" if variant == "live" else f"{scenario_id}.json")
+
+
+def _read(scenario_id: str, variant: str) -> dict[str, Any] | None:
+    path = replay_path(scenario_id, variant)
     if not path.is_file():
         return None
     data: dict[str, Any] = json.loads(path.read_text(encoding="utf-8"))
+    return data
+
+
+def demonstrates(record: dict[str, Any]) -> bool:
+    v = record.get("verdict", {})
+    return bool(v.get("attack_succeeded_unprotected")) and not v.get("attack_succeeded_protected")
+
+
+def replay_variants(scenario_id: str) -> dict[str, Any]:
+    """Which replays exist for a preset and which one is the default demo.
+
+    The real-model replay is the default when it shows the attack working
+    unprotected and stopped protected; otherwise (the model refused, or there is
+    none) the scripted replay is, and the real-model one stays available.
+    """
+    live = _read(scenario_id, "live")
+    scripted = _read(scenario_id, "scripted")
+    default = "live" if live is not None and demonstrates(live) else "scripted"
+    if scripted is None and live is not None:
+        default = "live"
+    available = [v for v, r in (("scripted", scripted), ("live", live)) if r is not None]
+    return {"default": default if available else None, "available": available}
+
+
+def load_replay(run_id: str) -> dict[str, Any] | None:
+    """A committed replay fixture, by `replay-<id>[-scripted|-live]`, or None."""
+    if not run_id.startswith(REPLAY_PREFIX):
+        return None
+    name = run_id[len(REPLAY_PREFIX) :]
+    variant = ""
+    for v in ("scripted", "live"):
+        if name.endswith(f"-{v}"):
+            name, variant = name[: -len(v) - 1], v
+    if not name.replace("_", "").isalnum():
+        return None
+    if not variant:
+        variant = replay_variants(name)["default"] or "scripted"
+    data = _read(name, variant)
+    if data is None:
+        return None
+    data["run_id"] = run_id
+    data["replay_variant"] = variant
     return data
 
 

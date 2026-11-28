@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from tripwire.playground.runner import PlaygroundError, PlaygroundRunner, RateLimited
 from tripwire.playground.scenarios import CUSTOM_TASKS, MAX_CUSTOM_CHARS, presets
+from tripwire.playground.store import replay_variants
 
 log = structlog.get_logger(__name__)
 router = APIRouter(prefix="/v1/playground", tags=["playground"])
@@ -52,7 +53,7 @@ async def list_scenarios(
 ) -> dict[str, Any]:
     cfg = runner.config
     return {
-        "presets": [sc.card() for sc in presets().values()],
+        "presets": [{**sc.card(), "replays": replay_variants(sc.id)} for sc in presets().values()],
         "custom_tasks": [
             {"id": t.id, "title": t.title, "task": t.task, "kind": t.kind}
             for t in CUSTOM_TASKS.values()

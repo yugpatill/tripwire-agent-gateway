@@ -73,6 +73,24 @@ Mode = Literal["live", "scripted", "replay"]
 # Playground sessions belong to no API key, so no key can read or use them.
 PLAYGROUND_OWNER = uuid.uuid5(uuid.NAMESPACE_URL, "https://tripwire/playground")
 PLAYGROUND_PRINCIPAL = Principal(PLAYGROUND_OWNER, "playground", "agent", "header")
+# USD per million input / output tokens (prompts up to 100K tokens), for the run
+# record's cost estimate. Unknown models get no estimate.
+PRICES_PER_MTOK: dict[str, tuple[float, float]] = {"claude-haiku-5-5": (0.10, 0.50)}
+
+
+def model_source(model: Model) -> str:
+    """What the UI shows: "live: <model id>" or "scripted"."""
+    return "scripted" if model.scripted else f"live: {model.name}"
+
+
+def usage(model_name: str, input_tokens: int, output_tokens: int) -> dict[str, Any]:
+    price = PRICES_PER_MTOK.get(model_name)
+    cost = (
+        round((input_tokens * price[0] + output_tokens * price[1]) / 1_000_000, 6)
+        if price
+        else None
+    )
+    return {"input_tokens": input_tokens, "output_tokens": output_tokens, "cost_usd": cost}
 
 
 class PlaygroundError(Exception):
@@ -91,7 +109,7 @@ class PlaygroundConfig:
     max_steps: int = 8
     max_output_tokens: int = 4000
     ip_per_hour: int = 5
-    daily_cap: int = 200
+    daily_cap: int = 50
     max_concurrent: int = 4
     ip_salt: str = "tripwire-playground"
 
@@ -157,10 +175,17 @@ class PlaygroundRunner:
 
         def replay(reason: str) -> dict[str, Any] | None:
             rid = replay_id(sc.id)
-            if load_replay(rid) is None:
+            stored = load_replay(rid)
+            if stored is None:
                 return None
             log.info("playground.replay", scenario=sc.id, reason=reason)
-            return {"run_id": rid, "mode": "replay", "reason": reason, "scenario": sc.card()}
+            return {
+                "run_id": rid,
+                "mode": "replay",
+                "reason": reason,
+                "model_source": stored["model"]["source"],
+                "scenario": sc.card(),
+            }
 
         if not await self.limits.ip_allowed(ip_hash, self.config.ip_per_hour):
             served = replay("rate_limited") if preset else None
@@ -194,6 +219,7 @@ class PlaygroundRunner:
             "run_id": run_id,
             "mode": mode,
             "reason": reason,
+            "model_source": (f"live: {self.config.model_name}" if mode == "live" else "scripted"),
             "scenario": sc.card(),
             "unprotected_session_id": None,
             "protected_session_id": str(protected_sid),
@@ -274,7 +300,11 @@ class PlaygroundRunner:
                 "run_id": run_id,
                 "mode": mode,
                 "scenario": sc.card(),
-                "model": {"provider": first.provider, "name": first.name},
+                "model": {
+                    "provider": first.provider,
+                    "name": first.name,
+                    "source": model_source(first),
+                },
             },
         )
         sides = await asyncio.gather(
@@ -304,7 +334,17 @@ class PlaygroundRunner:
             "run_id": run_id,
             "created_at": datetime.now(UTC).isoformat(),
             "source": "live" if mode == "live" else "scripted",
-            "model": {"provider": first.provider, "name": first.name, "scripted": first.scripted},
+            "model": {
+                "provider": first.provider,
+                "name": first.name,
+                "scripted": first.scripted,
+                "source": model_source(first),
+            },
+            "usage": usage(
+                first.name,
+                unprotected["usage"]["input_tokens"] + protected["usage"]["input_tokens"],
+                unprotected["usage"]["output_tokens"] + protected["usage"]["output_tokens"],
+            ),
             "scenario": {**sc.card(), "malicious": sc.malicious.model_dump()},
             "limits": {
                 "max_steps": self.config.max_steps,
@@ -376,6 +416,11 @@ class PlaygroundRunner:
             "final_text": result.final_text if result else "",
             "steps": result.steps if result else 0,
             "output_tokens": result.output_tokens if result else 0,
+            "usage": usage(
+                model.name,
+                result.input_tokens if result else 0,
+                result.output_tokens if result else 0,
+            ),
             "stop": result.stop if result else "error",
         }
         await emit(
