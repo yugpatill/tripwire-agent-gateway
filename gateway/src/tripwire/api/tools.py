@@ -8,8 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from tripwire.approvals.service import ApprovalService
-from tripwire.auth.api_keys import Principal
-from tripwire.auth.deps import require_operator
+from tripwire.auth.console import ConsoleUser, console_reader, console_writer
 from tripwire.proxy.guard import ManifestGuard
 
 router = APIRouter(prefix="/v1/tools", tags=["tools"])
@@ -34,7 +33,7 @@ def get_guard(request: Request) -> ManifestGuard:
 @router.get("", response_model=list[ToolPinView])
 async def list_tools(
     guard: Annotated[ManifestGuard, Depends(get_guard)],
-    _: Annotated[Principal, Depends(require_operator)],
+    _: Annotated[ConsoleUser, Depends(console_reader)],
 ) -> list[ToolPinView]:
     return [
         ToolPinView(
@@ -56,7 +55,7 @@ async def approve_tool(
     name: str,
     request: Request,
     guard: Annotated[ManifestGuard, Depends(get_guard)],
-    principal: Annotated[Principal, Depends(require_operator)],
+    user: Annotated[ConsoleUser, Depends(console_writer)],
 ) -> ToolPinView:
     """Re-pin a quarantined or changed tool after review (also closes its open reviews)."""
     approvals: ApprovalService | None = request.app.state.approvals
@@ -64,7 +63,7 @@ async def approve_tool(
     if approvals is not None:
         for kind in ("tool_quarantine", "tool_change"):
             for rec in await approvals.store.pending_for_tool(kind, name):
-                await approvals.decide(rec.id, "approve", "once", f"key:{principal.name}")
+                await approvals.decide(rec.id, "approve", "once", user.name)
                 decided = True
     pin = await guard.store.get(name) if decided else await guard.approve(name)
     if pin is None:

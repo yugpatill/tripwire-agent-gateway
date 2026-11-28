@@ -1,7 +1,7 @@
 """WebSocket /v1/stream: live approval and tool events for operators.
 
-Authentication: `Authorization: Bearer <operator key>` on the upgrade request.
-(Browser login for the console arrives with the web app.)
+Authentication: the console session cookie (browsers), or
+`Authorization: Bearer <operator key>` on the upgrade request.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import structlog
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from tripwire.approvals.service import ApprovalService
-from tripwire.auth.api_keys import ApiKeyAuthenticator
+from tripwire.auth.console import websocket_user
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["stream"])
@@ -21,18 +21,13 @@ router = APIRouter(tags=["stream"])
 
 @router.websocket("/v1/stream")
 async def stream(ws: WebSocket) -> None:
-    scheme, _, token = ws.headers.get("authorization", "").partition(" ")
-    auth: ApiKeyAuthenticator = ws.app.state.authenticator
-    principal = None
-    if scheme.lower() == "bearer" and token:
-        with contextlib.suppress(Exception):
-            principal = await auth.authenticate(token.strip())
-    if principal is None or not principal.is_operator:
-        await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="operator key required")
+    user = await websocket_user(ws)
+    if user is None:
+        await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="sign in to the console")
         return
     await ws.accept()
     approvals: ApprovalService = ws.app.state.approvals
-    await ws.send_json({"type": "hello", "operator": principal.name})
+    await ws.send_json({"type": "hello", "user": user.name, "role": user.role})
 
     async def pump() -> None:
         async for event in approvals.bus.subscribe():

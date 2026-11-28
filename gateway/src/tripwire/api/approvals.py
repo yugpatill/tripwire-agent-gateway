@@ -19,7 +19,8 @@ from tripwire.approvals.service import (
     ApprovalStatus,
 )
 from tripwire.auth.api_keys import Principal
-from tripwire.auth.deps import require_api_key, require_operator
+from tripwire.auth.console import ConsoleUser, console_reader, console_writer
+from tripwire.auth.deps import require_api_key
 
 router = APIRouter(prefix="/v1/approvals", tags=["approvals"])
 
@@ -37,7 +38,7 @@ def get_approvals(request: Request) -> ApprovalService:
 @router.get("", response_model=list[ApprovalRecord])
 async def list_approvals(
     svc: Annotated[ApprovalService, Depends(get_approvals)],
-    _: Annotated[Principal, Depends(require_operator)],
+    _: Annotated[ConsoleUser, Depends(console_reader)],
     status_: Annotated[ApprovalStatus | None, Query(alias="status")] = None,
     limit: Annotated[int, Query(ge=1, le=500)] = 100,
 ) -> list[ApprovalRecord]:
@@ -70,10 +71,10 @@ async def decide_approval(
     approval_id: uuid.UUID,
     body: ApprovalDecision,
     svc: Annotated[ApprovalService, Depends(get_approvals)],
-    principal: Annotated[Principal, Depends(require_operator)],
+    user: Annotated[ConsoleUser, Depends(console_writer)],
 ) -> ApprovalRecord:
     try:
-        return await svc.decide(approval_id, body.decision, body.scope, f"key:{principal.name}")
+        return await svc.decide(approval_id, body.decision, body.scope, user.name)
     except ApprovalError as exc:
         code = status.HTTP_404_NOT_FOUND if "unknown" in str(exc) else status.HTTP_409_CONFLICT
         raise HTTPException(status_code=code, detail=str(exc)) from exc

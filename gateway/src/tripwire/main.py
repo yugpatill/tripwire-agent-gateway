@@ -13,9 +13,10 @@ from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
 from tripwire import __version__
-from tripwire.api import approvals, check, health, playground, sessions, stream, tools
+from tripwire.api import approvals, auth, check, health, playground, sessions, stream, tools
 from tripwire.approvals.service import ApprovalService, RedisEventBus, SqlApprovalStore
 from tripwire.auth.api_keys import ApiKeyAuthenticator, SqlKeyRepository
+from tripwire.auth.console import UserStore
 from tripwire.config import Settings, get_settings
 from tripwire.db.session import make_engine, make_sessionmaker
 from tripwire.log_config import configure_logging
@@ -101,6 +102,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.sessionmaker = make_sessionmaker(engine)
         app.state.redis = aioredis.Redis.from_url(settings.redis_url, decode_responses=True)
         app.state.authenticator = ApiKeyAuthenticator(SqlKeyRepository(app.state.sessionmaker))
+        app.state.users = UserStore(app.state.sessionmaker, settings)
         app.state.approvals = ApprovalService(
             SqlApprovalStore(app.state.sessionmaker),
             RedisEventBus(app.state.redis),
@@ -182,6 +184,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(tools.router)
     app.include_router(stream.router)
     app.include_router(playground.router)
+    app.include_router(auth.router)
 
     class McpEndpoint:
         """ASGI endpoint (a class, so Starlette passes every method through).
