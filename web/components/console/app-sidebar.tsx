@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Suspense } from "react";
 import {
   Activity,
   FlaskConical,
@@ -35,8 +36,29 @@ const NAV = [
   { href: "/console/evals", label: "Evaluations", icon: FlaskConical },
 ] as const;
 
+function NavMenu({ pathname }: { pathname: string | null }) {
+  return (
+    <SidebarMenu>
+      {NAV.map(({ href, label, icon: Icon }) => (
+        <SidebarMenuItem key={href}>
+          <SidebarMenuButton
+            isActive={pathname !== null && (href === "/console" ? pathname === href : pathname.startsWith(href))}
+            render={<Link href={href} />}
+          >
+            <Icon aria-hidden />
+            <span>{label}</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      ))}
+    </SidebarMenu>
+  );
+}
+
+function ActiveNavMenu() {
+  return <NavMenu pathname={usePathname()} />;
+}
+
 export function AppSidebar() {
-  const pathname = usePathname();
   return (
     <Sidebar>
       <SidebarHeader>
@@ -49,19 +71,10 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>Operator console</SidebarGroupLabel>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {NAV.map(({ href, label, icon: Icon }) => (
-                <SidebarMenuItem key={href}>
-                  <SidebarMenuButton
-                    isActive={href === "/console" ? pathname === href : pathname.startsWith(href)}
-                    render={<Link href={href} />}
-                  >
-                    <Icon aria-hidden />
-                    <span>{label}</span>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
+            {/* The current path is request data: highlight inside Suspense. */}
+            <Suspense fallback={<NavMenu pathname={null} />}>
+              <ActiveNavMenu />
+            </Suspense>
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>

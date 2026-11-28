@@ -45,7 +45,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Sessions */
+        get: operations["list_sessions_v1_sessions_get"];
         put?: never;
         /** Create Session */
         post: operations["create_session_v1_sessions_post"];
@@ -305,6 +306,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Events */
+        get: operations["list_events_v1_events_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/sessions/{session_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Session Trace */
+        get: operations["session_trace_v1_sessions__session_id__trace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/metrics/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Metrics Summary */
+        get: operations["metrics_summary_v1_metrics_summary_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -429,6 +481,61 @@ export interface components {
             /** Reason */
             reason: string;
         };
+        /** EventPage */
+        EventPage: {
+            /** Items */
+            items: components["schemas"]["EventView"][];
+            /** Next Before */
+            next_before: string | null;
+        };
+        /** EventView */
+        EventView: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Kind */
+            kind: string;
+            /** Tool */
+            tool: string;
+            /** Action */
+            action: string;
+            /** Enforced Action */
+            enforced_action: string;
+            /** Rule Id */
+            rule_id: string | null;
+            /** Message */
+            message: string;
+            /** Latency Ms */
+            latency_ms: number;
+            /** Labels */
+            labels: {
+                [key: string]: unknown;
+            };
+            /** Detectors */
+            detectors: unknown[];
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /** Edges */
+            edges: unknown[];
+            /** Stage Timings */
+            stage_timings: {
+                [key: string]: unknown;
+            };
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -529,6 +636,58 @@ export interface components {
              */
             session_id: string;
         };
+        /** SessionView */
+        SessionView: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** User Prompt */
+            user_prompt: string;
+            /** Mode */
+            mode: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Key Name */
+            key_name: string | null;
+            /** Events */
+            events: number;
+            /** Stopped */
+            stopped: number;
+            /** Last Event At */
+            last_event_at: string | null;
+        };
+        /** Summary */
+        Summary: {
+            /** Hours */
+            hours: number;
+            /** Totals */
+            totals: {
+                [key: string]: number;
+            };
+            /** Sessions */
+            sessions: number;
+            /** Latency Ms */
+            latency_ms: {
+                [key: string]: number | null;
+            };
+            /** Series */
+            series: {
+                [key: string]: unknown;
+            }[];
+            /** Top Rules */
+            top_rules: {
+                [key: string]: unknown;
+            }[];
+            /** Recent Stops */
+            recent_stops: components["schemas"]["EventView"][];
+        };
         /** ToolCall */
         ToolCall: {
             /**
@@ -589,6 +748,16 @@ export interface components {
             content: string | {
                 [key: string]: unknown;
             } | unknown[];
+        };
+        /** Trace */
+        Trace: {
+            session: components["schemas"]["SessionView"];
+            /** Events */
+            events: components["schemas"]["EventView"][];
+            /** Edges */
+            edges: {
+                [key: string]: unknown;
+            }[];
         };
         /** UserPrompt */
         UserPrompt: {
@@ -658,6 +827,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadyResponse"];
+                };
+            };
+        };
+    };
+    list_sessions_v1_sessions_get: {
+        parameters: {
+            query?: {
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1122,6 +1323,106 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DemoCredentials"];
+                };
+            };
+        };
+    };
+    list_events_v1_events_get: {
+        parameters: {
+            query?: {
+                kind?: ("call" | "result") | null;
+                /** @description enforced action, e.g. block */
+                action?: string | null;
+                tool?: string | null;
+                rule_id?: string | null;
+                session_id?: string | null;
+                before?: string | null;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventPage"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    session_trace_v1_sessions__session_id__trace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Trace"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    metrics_summary_v1_metrics_summary_get: {
+        parameters: {
+            query?: {
+                hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Summary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

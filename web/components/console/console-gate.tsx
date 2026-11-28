@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { Eye, LogOut } from "lucide-react";
-import { createContext, useContext, useEffect } from "react";
+import { createContext, Suspense, useContext, useEffect } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,14 +22,24 @@ export function useConsoleUser(): Me | null {
  */
 export function ConsoleGate({ children }: { children: React.ReactNode }) {
   const { data: me, isLoading } = useMe();
+  return (
+    <MeContext.Provider value={me ?? null}>
+      {/* The current path is request data: read it inside Suspense. */}
+      <Suspense fallback={null}>
+        <LoginRedirect signedOut={!isLoading && me === null} />
+      </Suspense>
+      {children}
+    </MeContext.Provider>
+  );
+}
+
+function LoginRedirect({ signedOut }: { signedOut: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
-
   useEffect(() => {
-    if (!isLoading && me === null) router.replace(`/login?next=${encodeURIComponent(pathname)}`);
-  }, [isLoading, me, pathname, router]);
-
-  return <MeContext.Provider value={me ?? null}>{children}</MeContext.Provider>;
+    if (signedOut) router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+  }, [signedOut, pathname, router]);
+  return null;
 }
 
 export function UserMenu() {

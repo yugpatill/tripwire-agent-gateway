@@ -67,3 +67,41 @@ def test_demo_account_is_public_and_read_only(client: TestClient) -> None:
     assert client.post("/v1/tools/x__y/approve").status_code == 403
     with client.websocket_connect("/v1/stream") as ws:
         assert ws.receive_json()["role"] == "readonly"
+
+
+def test_console_read_api_redacts_secrets(client: TestClient) -> None:
+    from tripwire.auth.api_keys import SqlKeyRepository
+
+    repo = SqlKeyRepository(client.app.state.sessionmaker)  # type: ignore[attr-defined]
+    key = client.portal.call(repo.create, "console-it")  # type: ignore[union-attr]
+    agent = {"Authorization": f"Bearer {key.token}"}
+    secret = "AKIA" + "ABCDEFGHIJKLMNOP"
+    sid = client.post(
+        "/v1/sessions",
+        json={"agent_name": "console-it", "user_prompt": "save a note"},
+        headers=agent,
+    ).json()["session_id"]
+    r = client.post(
+        "/v1/check/call",
+        json={
+            "session_id": sid,
+            "tool": "files__write_file",
+            "args": {"path": "/tmp/n.txt", "content": f"key={secret}"},
+        },
+        headers=agent,
+    )
+    assert r.status_code == 200
+    demo = client.get("/v1/auth/demo").json()
+    assert _login(client, demo["username"], demo["password"]) == 200
+    page = client.get("/v1/events", params={"session_id": sid}).json()
+    (event,) = page["items"]
+    assert secret not in str(event) and "[REDACTED" in event["payload"]["args"]["content"]
+    trace = client.get(f"/v1/sessions/{sid}/trace").json()
+    assert trace["session"]["agent_name"] == "console-it" and len(trace["events"]) == 1
+    summary = client.get("/v1/metrics/summary", params={"hours": 1}).json()
+    assert summary["totals"] and summary["sessions"] >= 1
+    sessions = client.get("/v1/sessions", params={"limit": 5}).json()
+    assert any(s["id"] == sid for s in sessions)
+    client.post("/v1/auth/logout")
+    assert client.get("/v1/events").status_code == 401
+    client.portal.call(repo.revoke, key.id)  # type: ignore[union-attr]

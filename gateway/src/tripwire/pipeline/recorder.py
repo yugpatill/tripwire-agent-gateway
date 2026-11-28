@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 from uuid import UUID
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from tripwire.db import models as db
+
+log = structlog.get_logger(__name__)
 
 
 @dataclass(slots=True)
@@ -65,8 +69,14 @@ class MemoryRecorder:
 
 
 class SqlRecorder:
-    def __init__(self, factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        factory: async_sessionmaker[AsyncSession],
+        on_event: Callable[[EventRecord], Awaitable[None]] | None = None,
+    ) -> None:
+        """`on_event`: called after each event is stored (the console's live stream)."""
         self._factory = factory
+        self._on_event = on_event
 
     async def record_session(self, rec: SessionRecord) -> None:
         async with self._factory() as s, s.begin():
@@ -101,6 +111,11 @@ class SqlRecorder:
                     stage_timings=rec.stage_timings,
                 )
             )
+        if self._on_event is not None:
+            try:
+                await self._on_event(rec)
+            except Exception as exc:  # the live stream is best effort
+                log.warning("recorder.publish_failed", error=repr(exc))
 
     async def add_detector(self, event_id: UUID, detector: dict[str, Any]) -> None:
         async with self._factory() as s, s.begin():

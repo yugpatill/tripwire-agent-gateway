@@ -13,7 +13,17 @@ from starlette.routing import Route
 from starlette.types import Receive, Scope, Send
 
 from tripwire import __version__
-from tripwire.api import approvals, auth, check, health, playground, sessions, stream, tools
+from tripwire.api import (
+    approvals,
+    auth,
+    check,
+    console,
+    health,
+    playground,
+    sessions,
+    stream,
+    tools,
+)
 from tripwire.approvals.service import ApprovalService, RedisEventBus, SqlApprovalStore
 from tripwire.auth.api_keys import ApiKeyAuthenticator, SqlKeyRepository
 from tripwire.auth.console import UserStore
@@ -25,7 +35,7 @@ from tripwire.pipeline.detect import DetectionPipeline
 from tripwire.pipeline.engine import Engine
 from tripwire.pipeline.llm_judge import AnthropicJudge, Judge
 from tripwire.pipeline.pii import PiiDetector
-from tripwire.pipeline.recorder import SqlRecorder
+from tripwire.pipeline.recorder import EventRecord, SqlRecorder
 from tripwire.playground.runner import PLAYGROUND_OWNER, PlaygroundConfig, PlaygroundRunner
 from tripwire.playground.store import RedisLimits, RedisRunEvents, SqlRunStore
 from tripwire.policy.compiler import CompiledPolicy, compile_policy
@@ -109,9 +119,28 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             timeout_s=settings.tripwire_approval_timeout_s,
         )
         detection = build_detection(settings)
+        bus = app.state.approvals.bus
+
+        async def publish_event(rec: EventRecord) -> None:
+            await bus.publish(
+                {
+                    "type": "event.recorded",
+                    "event": {
+                        "id": str(rec.id),
+                        "session_id": str(rec.session_id),
+                        "kind": rec.kind,
+                        "tool": rec.tool,
+                        "enforced_action": rec.enforced_action,
+                        "rule_id": rec.rule_id,
+                        "latency_ms": rec.latency_ms,
+                    },
+                }
+            )
+
+        recorder = SqlRecorder(app.state.sessionmaker, on_event=publish_event)
         app.state.engine = Engine(
             store=RedisTaintStore(app.state.redis),
-            recorder=SqlRecorder(app.state.sessionmaker),
+            recorder=recorder,
             policy=load_active_policy(settings.tripwire_policy_path),
             default_mode=settings.tripwire_mode,
             detection=detection,
@@ -140,7 +169,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.playground = PlaygroundRunner(
             Engine(
                 store=RedisTaintStore(app.state.redis),
-                recorder=SqlRecorder(app.state.sessionmaker),
+                recorder=recorder,
                 policy=load_active_policy(settings.playground_policy_path),
                 detection=detection,
             ),
@@ -185,6 +214,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(stream.router)
     app.include_router(playground.router)
     app.include_router(auth.router)
+    app.include_router(console.router)
 
     class McpEndpoint:
         """ASGI endpoint (a class, so Starlette passes every method through).
