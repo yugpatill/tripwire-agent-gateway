@@ -94,6 +94,15 @@ def _meta(decision: Decision, status: str, **extra: Any) -> dict[str, Any]:
         "rule_id": decision.rule_id,
         "message": decision.message,
         "event_id": str(decision.event_id),
+        # Where each argument's data came from (the taint path behind the decision).
+        "arg_labels": {
+            arg: [
+                {"source": p.source, "trust": p.trust, "confidentiality": p.confidentiality}
+                for p in labels
+            ]
+            for arg, labels in decision.arg_labels.items()
+            if labels
+        },
         **extra,
     }
 
@@ -305,7 +314,10 @@ class McpProxy:
         ok, reason = await self.guard.callable_status(name)
         if not ok:
             rule = "manifest-rug-pull" if "rug pull" in reason else "manifest-quarantine"
-            return _error(reason, {"status": "blocked", "action": "block", "rule_id": rule})
+            return _error(
+                reason,
+                {"status": "blocked", "action": "block", "rule_id": rule, "message": reason},
+            )
 
         owner = ident.principal.key_id
         decision = await self.engine.check_call(

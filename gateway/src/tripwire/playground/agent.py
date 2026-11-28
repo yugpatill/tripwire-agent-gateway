@@ -75,6 +75,7 @@ class ToolOutcome:
     message: str = ""
     flagged: bool = False
     detectors: list[dict[str, Any]] = field(default_factory=list)
+    arg_labels: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -428,6 +429,7 @@ class ProtectedBackend:
             str(meta.get("message") or ""),
             bool(meta.get("result_suspicious")),
             list(meta.get("result_detectors") or []),
+            dict(meta.get("arg_labels") or {}),
         )
 
 
@@ -500,6 +502,7 @@ async def run_agent(
                     "content": outcome.content,
                     "flagged": outcome.flagged,
                     "detectors": outcome.detectors,
+                    "arg_labels": outcome.arg_labels,
                 }
             )
     return SideResult(final, max_steps, used, "steps", input_tokens=used_in)
