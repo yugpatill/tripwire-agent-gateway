@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, JetBrains_Mono } from "next/font/google";
 
+import { Providers } from "@/components/providers";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -24,7 +25,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="flex min-h-full flex-col">
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
-          <TooltipProvider>{children}</TooltipProvider>
+          <Providers>
+            <TooltipProvider>{children}</TooltipProvider>
+          </Providers>
           <Toaster />
         </ThemeProvider>
       </body>

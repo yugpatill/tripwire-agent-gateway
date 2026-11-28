@@ -1,0 +1,1349 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Tripwire Gateway",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Healthz",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Readyz",
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadyResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/sessions": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Create Session",
+        "operationId": "create_session_v1_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionCreated"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/sessions/{session_id}/prompts": {
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "Add User Prompt",
+        "description": "Add a user turn (multi-turn agents): entities in it count as user-given.\n\nCall it from the application with the user's own words, never with model output.",
+        "operationId": "add_user_prompt_v1_sessions__session_id__prompts_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UserPrompt"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserPromptAdded"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/check/call": {
+      "post": {
+        "tags": [
+          "check"
+        ],
+        "summary": "Check Call",
+        "operationId": "check_call_v1_check_call_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolCall"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Decision"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/check/result": {
+      "post": {
+        "tags": [
+          "check"
+        ],
+        "summary": "Check Result",
+        "operationId": "check_result_v1_check_result_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolResult"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultCheck"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/approvals": {
+      "get": {
+        "tags": [
+          "approvals"
+        ],
+        "summary": "List Approvals",
+        "operationId": "list_approvals_v1_approvals_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pending",
+                    "approved",
+                    "denied",
+                    "expired"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 500,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ApprovalRecord"
+                  },
+                  "title": "Response List Approvals V1 Approvals Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/approvals/{approval_id}": {
+      "get": {
+        "tags": [
+          "approvals"
+        ],
+        "summary": "Get Approval",
+        "operationId": "get_approval_v1_approvals__approval_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "approval_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Approval Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "approvals"
+        ],
+        "summary": "Decide Approval",
+        "operationId": "decide_approval_v1_approvals__approval_id__post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "approval_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Approval Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalRecord"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tools": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "List Tools",
+        "operationId": "list_tools_v1_tools_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ToolPinView"
+                  },
+                  "type": "array",
+                  "title": "Response List Tools V1 Tools Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/tools/{name}/approve": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Approve Tool",
+        "description": "Re-pin a quarantined or changed tool after review (also closes its open reviews).",
+        "operationId": "approve_tool_v1_tools__name__approve_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Name"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolPinView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/playground/scenarios": {
+      "get": {
+        "tags": [
+          "playground"
+        ],
+        "summary": "List Scenarios",
+        "operationId": "list_scenarios_v1_playground_scenarios_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response List Scenarios V1 Playground Scenarios Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/playground/run": {
+      "post": {
+        "tags": [
+          "playground"
+        ],
+        "summary": "Start Run",
+        "operationId": "start_run_v1_playground_run_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Start Run V1 Playground Run Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/playground/runs/{run_id}": {
+      "get": {
+        "tags": [
+          "playground"
+        ],
+        "summary": "Get Run",
+        "operationId": "get_run_v1_playground_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Run V1 Playground Runs  Run Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApprovalDecision": {
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "deny"
+            ],
+            "title": "Decision"
+          },
+          "scope": {
+            "type": "string",
+            "enum": [
+              "once",
+              "session"
+            ],
+            "title": "Scope",
+            "default": "once"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "ApprovalDecision"
+      },
+      "ApprovalRecord": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "call",
+              "tool_quarantine",
+              "tool_change"
+            ],
+            "title": "Kind"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "event_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Event Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "approved",
+              "denied",
+              "expired"
+            ],
+            "title": "Status"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "once",
+                  "session"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "decided_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided By"
+          },
+          "detail": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Detail"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "tool",
+          "session_id",
+          "event_id",
+          "status",
+          "scope",
+          "decided_by",
+          "detail",
+          "expires_at",
+          "decided_at",
+          "created_at"
+        ],
+        "title": "ApprovalRecord"
+      },
+      "CustomAttack": {
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "title": "Task Id"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "task_id",
+          "text"
+        ],
+        "title": "CustomAttack"
+      },
+      "Decision": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Event Id"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "allow",
+              "block",
+              "redact",
+              "require_approval",
+              "log_only"
+            ],
+            "title": "Action"
+          },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "arg_labels": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/Provenance"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Arg Labels"
+          },
+          "detectors": {
+            "items": {
+              "$ref": "#/components/schemas/DetectorResult"
+            },
+            "type": "array",
+            "title": "Detectors"
+          },
+          "redacted_args": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Redacted Args"
+          },
+          "latency_ms": {
+            "type": "number",
+            "title": "Latency Ms"
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_id",
+          "action",
+          "rule_id",
+          "message",
+          "arg_labels",
+          "detectors",
+          "redacted_args",
+          "latency_ms",
+          "approval_id"
+        ],
+        "title": "Decision"
+      },
+      "DetectorResult": {
+        "properties": {
+          "detector": {
+            "type": "string",
+            "enum": [
+              "heuristic",
+              "classifier",
+              "classifier_shadow",
+              "llm_judge",
+              "secrets",
+              "pii",
+              "manifest"
+            ],
+            "title": "Detector"
+          },
+          "score": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Score"
+          },
+          "spans": {
+            "items": {
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array",
+              "maxItems": 2,
+              "minItems": 2
+            },
+            "type": "array",
+            "title": "Spans"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "detector",
+          "score",
+          "spans",
+          "reason"
+        ],
+        "title": "DetectorResult"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "title": "HealthResponse"
+      },
+      "Provenance": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source"
+          },
+          "trust": {
+            "type": "string",
+            "enum": [
+              "trusted",
+              "untrusted",
+              "suspicious",
+              "untrusted_origin"
+            ],
+            "title": "Trust"
+          },
+          "confidentiality": {
+            "type": "string",
+            "enum": [
+              "public",
+              "internal",
+              "confidential",
+              "secret"
+            ],
+            "title": "Confidentiality"
+          },
+          "event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Event Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "trust",
+          "confidentiality",
+          "event_id"
+        ],
+        "title": "Provenance"
+      },
+      "ReadyResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "degraded"
+            ],
+            "title": "Status"
+          },
+          "checks": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "type": "object",
+            "title": "Checks"
+          }
+        },
+        "type": "object",
+        "required": [
+          "status",
+          "checks"
+        ],
+        "title": "ReadyResponse"
+      },
+      "ResultCheck": {
+        "properties": {
+          "content_redacted": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "title": "Content Redacted"
+          },
+          "labels": {
+            "items": {
+              "$ref": "#/components/schemas/Provenance"
+            },
+            "type": "array",
+            "title": "Labels"
+          },
+          "detectors": {
+            "items": {
+              "$ref": "#/components/schemas/DetectorResult"
+            },
+            "type": "array",
+            "title": "Detectors"
+          },
+          "decision": {
+            "$ref": "#/components/schemas/Decision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "content_redacted",
+          "labels",
+          "detectors",
+          "decision"
+        ],
+        "title": "ResultCheck"
+      },
+      "RunRequest": {
+        "properties": {
+          "scenario_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario Id"
+          },
+          "custom": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CustomAttack"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "title": "RunRequest"
+      },
+      "SessionCreate": {
+        "properties": {
+          "agent_name": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Agent Name"
+          },
+          "user_prompt": {
+            "type": "string",
+            "maxLength": 100000,
+            "title": "User Prompt"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "enforce",
+              "shadow"
+            ],
+            "title": "Mode",
+            "default": "enforce"
+          }
+        },
+        "type": "object",
+        "required": [
+          "agent_name",
+          "user_prompt"
+        ],
+        "title": "SessionCreate"
+      },
+      "SessionCreated": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "title": "SessionCreated"
+      },
+      "ToolCall": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool",
+            "description": "Namespaced \"<server>__<tool>\""
+          },
+          "args": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Args"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "tool",
+          "args"
+        ],
+        "title": "ToolCall"
+      },
+      "ToolPinView": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "server": {
+            "type": "string",
+            "title": "Server"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "hash": {
+            "type": "string",
+            "title": "Hash"
+          },
+          "risk_score": {
+            "type": "number",
+            "title": "Risk Score"
+          },
+          "findings": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Findings"
+          },
+          "manifest": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Manifest"
+          },
+          "pending_change": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pending Change"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "server",
+          "status",
+          "hash",
+          "risk_score",
+          "findings",
+          "manifest",
+          "pending_change"
+        ],
+        "title": "ToolPinView"
+      },
+      "ToolResult": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "call_event_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Call Event Id"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "title": "Content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "tool",
+          "call_event_id",
+          "content"
+        ],
+        "title": "ToolResult"
+      },
+      "UserPrompt": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "maxLength": 100000,
+            "minLength": 1,
+            "title": "Text"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "UserPrompt"
+      },
+      "UserPromptAdded": {
+        "properties": {
+          "added": {
+            "type": "boolean",
+            "title": "Added"
+          }
+        },
+        "type": "object",
+        "required": [
+          "added"
+        ],
+        "title": "UserPromptAdded"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "description": "Agent API key: `Bearer tw_...`",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

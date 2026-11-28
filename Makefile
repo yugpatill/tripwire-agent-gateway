@@ -31,6 +31,7 @@ migrate: ## apply DB migrations inside the running gateway container
 
 openapi: ## export gateway OpenAPI schema for the web client
 	cd gateway && uv run tripwire openapi > ../web/lib/api/openapi.json
+	cd web && pnpm api:generate
 
 eval: ## run benchmarks (Phase 9)
 	@echo "evals are implemented in Phase 9" && exit 1
