@@ -90,52 +90,86 @@ class Upstream:
         self.name = name
         self.spec = spec
         self.server = server
-        self._stack: AsyncExitStack | None = None
         self._client: Client | None = None
+        self._owner: asyncio.Task[None] | None = None
+        self._stop: asyncio.Event | None = None
         self._lock = asyncio.Lock()
 
+    async def _open(self, stack: AsyncExitStack) -> Client:
+        if self.server is not None:
+            client: Client = await stack.enter_async_context(Client(self.server))
+            return client
+        if self.spec is not None and self.spec.url is not None:
+            http = await stack.enter_async_context(
+                httpx2.AsyncClient(
+                    headers={k: _expand(v) for k, v in self.spec.headers.items()},
+                    timeout=httpx2.Timeout(30.0, read=300.0),
+                )
+            )
+            transport = streamable_http_client(self.spec.url, http_client=http)
+            client = await stack.enter_async_context(Client(transport))
+            return client
+        assert self.spec is not None and self.spec.command is not None
+        params = StdioServerParameters(
+            command=self.spec.command,
+            args=self.spec.args,
+            env={k: _expand(v) for k, v in self.spec.env.items()} or None,
+        )
+        client = await stack.enter_async_context(Client(params))
+        return client
+
     async def _connect(self) -> Client:
-        stack = AsyncExitStack()
+        """Open the connection in a task of its own that also closes it.
+
+        The SDK client holds anyio task groups and cancel scopes, which must be
+        entered and exited by the same task. Opening it inside whichever request
+        first needed it broke that request's own task group when it finished
+        ("exit a cancel scope that isn't the current task's")."""
+        ready: asyncio.Future[Client] = asyncio.get_running_loop().create_future()
+        stop = asyncio.Event()
+
+        async def own() -> None:
+            try:
+                async with AsyncExitStack() as stack:
+                    ready.set_result(await self._open(stack))
+                    await stop.wait()
+            except BaseException as exc:
+                if not ready.done():
+                    ready.set_exception(exc)
+                else:  # the connection died or failed to close cleanly
+                    log.debug("mcp.upstream_closed", upstream=self.name, error=repr(exc))
+                if not isinstance(exc, Exception):
+                    raise
+
+        owner = asyncio.create_task(own(), name=f"mcp-upstream-{self.name}")
         try:
-            if self.server is not None:
-                client = await stack.enter_async_context(Client(self.server))
-            elif self.spec is not None and self.spec.url is not None:
-                http = await stack.enter_async_context(
-                    httpx2.AsyncClient(
-                        headers={k: _expand(v) for k, v in self.spec.headers.items()},
-                        timeout=httpx2.Timeout(30.0, read=300.0),
-                    )
-                )
-                transport = streamable_http_client(self.spec.url, http_client=http)
-                client = await stack.enter_async_context(Client(transport))
-            else:
-                assert self.spec is not None and self.spec.command is not None
-                params = StdioServerParameters(
-                    command=self.spec.command,
-                    args=self.spec.args,
-                    env={k: _expand(v) for k, v in self.spec.env.items()} or None,
-                )
-                client = await stack.enter_async_context(Client(params))
+            client = await asyncio.shield(ready)
         except BaseException:
-            await stack.aclose()
+            stop.set()
+            owner.cancel()
             raise
-        self._stack, self._client = stack, client
+        self._client, self._owner, self._stop = client, owner, stop
         log.info("mcp.upstream_connected", upstream=self.name)
         return client
 
     async def client(self) -> Client:
         async with self._lock:
-            if self._client is None:
+            if self._client is None or (self._owner is not None and self._owner.done()):
                 return await self._connect()
             return self._client
 
     async def reset(self) -> None:
         async with self._lock:
-            stack, self._stack, self._client = self._stack, None, None
-        if stack is not None:
+            owner, stop = self._owner, self._stop
+            self._client = self._owner = self._stop = None
+        if owner is not None and stop is not None:
+            stop.set()
             try:
-                await stack.aclose()
-            except Exception as exc:  # a broken connection may fail to close cleanly
+                await asyncio.wait_for(asyncio.shield(owner), 5.0)
+            except BaseException as exc:  # a broken connection may fail to close cleanly
+                if not isinstance(exc, Exception):
+                    raise
+                owner.cancel()
                 log.debug("mcp.upstream_close_failed", upstream=self.name, error=repr(exc))
 
     async def list_tools(self) -> list[Tool]:
