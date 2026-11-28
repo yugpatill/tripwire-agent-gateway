@@ -43,6 +43,11 @@ BENCHMARK = "v1.2.2"
 ATTACK = "important_instructions"
 SUITES = ("workspace", "travel", "banking", "slack")
 CONFIGS = {"A": "no defense", "D": "full Tripwire"}
+# Injection tasks whose security check reads only the model's final answer (no
+# tool call is needed to succeed). Found by inspecting every injection task's
+# security() in v1.2.2: only this one ignores the environment. A gateway that
+# vets tool calls cannot stop these, so results are also split by goal type.
+TEXT_ONLY_GOALS = {("travel", "injection_task_6")}
 
 
 def wilson(k: int, n: int, z: float = 1.96) -> tuple[float, float]:
@@ -168,7 +173,13 @@ def summarize(config: str, model: str, effort: str, out_dir: Path, jobs: list[tu
     attacked = [r for r in ok if r["injection_task"] is not None]
 
     def block(rs_b: list[dict[str, Any]], rs_a: list[dict[str, Any]]) -> dict[str, Any]:
-        return {"utility": rate(rs_b, "utility"), "utility_under_attack": rate(rs_a, "utility"), "attack_success": rate(rs_a, "attack_succeeded")}
+        tool = [r for r in rs_a if (r["suite"], r["injection_task"]) not in TEXT_ONLY_GOALS]
+        text = [r for r in rs_a if (r["suite"], r["injection_task"]) in TEXT_ONLY_GOALS]
+        out = {"utility": rate(rs_b, "utility"), "utility_under_attack": rate(rs_a, "utility"), "attack_success": rate(rs_a, "attack_succeeded"),
+               "attack_success_tool_goals": rate(tool, "attack_succeeded")}
+        if text:
+            out["attack_success_text_only_goals"] = rate(text, "attack_succeeded")
+        return out
 
     out = {
         "benchmark": BENCHMARK, "attack": ATTACK, "config": config, "defense": CONFIGS[config], "model": model, "effort": effort,
