@@ -1035,10 +1035,275 @@
           }
         }
       }
+    },
+    "/v1/policies/active": {
+      "get": {
+        "tags": [
+          "policies"
+        ],
+        "summary": "Get Active",
+        "operationId": "get_active_v1_policies_active_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivePolicy"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "policies"
+        ],
+        "summary": "Deploy",
+        "operationId": "deploy_v1_policies_active_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyText"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Deployed"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/policies/test": {
+      "post": {
+        "tags": [
+          "policies"
+        ],
+        "summary": "Test Policy",
+        "description": "What the candidate policy would have decided for recorded calls (no rate limits).",
+        "operationId": "test_policy_v1_policies_test_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "since_hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 720,
+              "minimum": 1,
+              "default": 168,
+              "title": "Since Hours"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyText"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/policies/schema": {
+      "get": {
+        "tags": [
+          "policies"
+        ],
+        "summary": "Schema",
+        "operationId": "schema_v1_policies_schema_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Schema V1 Policies Schema Get"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/policies/mode": {
+      "get": {
+        "tags": [
+          "policies"
+        ],
+        "summary": "Get Mode",
+        "operationId": "get_mode_v1_policies_mode_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModeView"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "put": {
+        "tags": [
+          "policies"
+        ],
+        "summary": "Set Mode",
+        "operationId": "set_mode_v1_policies_mode_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ModeView"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModeView"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActivePolicy": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "yaml": {
+            "type": "string",
+            "title": "Yaml"
+          },
+          "created_by": {
+            "type": "string",
+            "title": "Created By"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version",
+          "yaml",
+          "created_by",
+          "created_at"
+        ],
+        "title": "ActivePolicy"
+      },
       "ApprovalDecision": {
         "properties": {
           "decision": {
@@ -1190,6 +1455,69 @@
         ],
         "title": "ApprovalRecord"
       },
+      "Change": {
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "title": "Event Id"
+          },
+          "session_id": {
+            "type": "string",
+            "title": "Session Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "tool": {
+            "type": "string",
+            "title": "Tool"
+          },
+          "old_action": {
+            "type": "string",
+            "title": "Old Action"
+          },
+          "old_rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Old Rule Id"
+          },
+          "new_action": {
+            "type": "string",
+            "title": "New Action"
+          },
+          "rule_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "event_id",
+          "session_id",
+          "created_at",
+          "tool",
+          "old_action",
+          "old_rule_id",
+          "new_action",
+          "rule_id"
+        ],
+        "title": "Change"
+      },
       "CustomAttack": {
         "properties": {
           "task_id": {
@@ -1320,6 +1648,19 @@
           "password"
         ],
         "title": "DemoCredentials"
+      },
+      "Deployed": {
+        "properties": {
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "Deployed"
       },
       "DetectorResult": {
         "properties": {
@@ -1571,6 +1912,37 @@
           "can_write"
         ],
         "title": "Me"
+      },
+      "ModeView": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "enforce",
+              "shadow"
+            ],
+            "title": "Mode"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode"
+        ],
+        "title": "ModeView"
+      },
+      "PolicyText": {
+        "properties": {
+          "yaml": {
+            "type": "string",
+            "maxLength": 200000,
+            "title": "Yaml"
+          }
+        },
+        "type": "object",
+        "required": [
+          "yaml"
+        ],
+        "title": "PolicyText"
       },
       "Provenance": {
         "properties": {
@@ -1890,6 +2262,37 @@
           "recent_stops"
         ],
         "title": "Summary"
+      },
+      "TestResult": {
+        "properties": {
+          "replayed": {
+            "type": "integer",
+            "title": "Replayed"
+          },
+          "skipped": {
+            "type": "integer",
+            "title": "Skipped"
+          },
+          "since_hours": {
+            "type": "integer",
+            "title": "Since Hours"
+          },
+          "changes": {
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            },
+            "type": "array",
+            "title": "Changes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "replayed",
+          "skipped",
+          "since_hours",
+          "changes"
+        ],
+        "title": "TestResult"
       },
       "ToolCall": {
         "properties": {

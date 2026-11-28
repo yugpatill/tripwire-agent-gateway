@@ -357,10 +357,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/policies/active": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Active */
+        get: operations["get_active_v1_policies_active_get"];
+        /** Deploy */
+        put: operations["deploy_v1_policies_active_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/policies/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test Policy
+         * @description What the candidate policy would have decided for recorded calls (no rate limits).
+         */
+        post: operations["test_policy_v1_policies_test_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/policies/schema": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Schema */
+        get: operations["schema_v1_policies_schema_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/policies/mode": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Mode */
+        get: operations["get_mode_v1_policies_mode_get"];
+        /** Set Mode */
+        put: operations["set_mode_v1_policies_mode_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivePolicy */
+        ActivePolicy: {
+            /** Version */
+            version: number;
+            /** Yaml */
+            yaml: string;
+            /** Created By */
+            created_by: string;
+            /** Created At */
+            created_at: string | null;
+        };
         /** ApprovalDecision */
         ApprovalDecision: {
             /**
@@ -419,6 +503,28 @@ export interface components {
              */
             created_at: string;
         };
+        /** Change */
+        Change: {
+            /** Event Id */
+            event_id: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Tool */
+            tool: string;
+            /** Old Action */
+            old_action: string;
+            /** Old Rule Id */
+            old_rule_id: string | null;
+            /** New Action */
+            new_action: string;
+            /** Rule Id */
+            rule_id: string | null;
+        };
         /** CustomAttack */
         CustomAttack: {
             /** Task Id */
@@ -463,6 +569,11 @@ export interface components {
             username: string;
             /** Password */
             password: string;
+        };
+        /** Deployed */
+        Deployed: {
+            /** Version */
+            version: number;
         };
         /** DetectorResult */
         DetectorResult: {
@@ -564,6 +675,19 @@ export interface components {
             role: string;
             /** Can Write */
             can_write: boolean;
+        };
+        /** ModeView */
+        ModeView: {
+            /**
+             * Mode
+             * @enum {string}
+             */
+            mode: "enforce" | "shadow";
+        };
+        /** PolicyText */
+        PolicyText: {
+            /** Yaml */
+            yaml: string;
         };
         /** Provenance */
         Provenance: {
@@ -687,6 +811,17 @@ export interface components {
             }[];
             /** Recent Stops */
             recent_stops: components["schemas"]["EventView"][];
+        };
+        /** TestResult */
+        TestResult: {
+            /** Replayed */
+            replayed: number;
+            /** Skipped */
+            skipped: number;
+            /** Since Hours */
+            since_hours: number;
+            /** Changes */
+            changes: components["schemas"]["Change"][];
         };
         /** ToolCall */
         ToolCall: {
@@ -1414,6 +1549,169 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Summary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_active_v1_policies_active_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActivePolicy"];
+                };
+            };
+        };
+    };
+    deploy_v1_policies_active_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyText"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Deployed"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    test_policy_v1_policies_test_post: {
+        parameters: {
+            query?: {
+                since_hours?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyText"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schema_v1_policies_schema_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+    };
+    get_mode_v1_policies_mode_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModeView"];
+                };
+            };
+        };
+    };
+    set_mode_v1_policies_mode_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ModeView"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ModeView"];
                 };
             };
             /** @description Validation Error */

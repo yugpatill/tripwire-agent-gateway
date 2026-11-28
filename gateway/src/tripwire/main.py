@@ -20,6 +20,7 @@ from tripwire.api import (
     console,
     health,
     playground,
+    policies,
     sessions,
     stream,
     tools,
@@ -40,6 +41,7 @@ from tripwire.playground.runner import PLAYGROUND_OWNER, PlaygroundConfig, Playg
 from tripwire.playground.store import RedisLimits, RedisRunEvents, SqlRunStore
 from tripwire.policy.compiler import CompiledPolicy, compile_policy
 from tripwire.policy.loader import PolicyError, load_policy_file
+from tripwire.policy.service import PolicyService
 from tripwire.proxy.guard import ManifestGuard, SqlPinStore
 from tripwire.proxy.mcp_gateway import McpProxy, RedisSessionMap, build_http_app
 from tripwire.proxy.upstreams import UpstreamPool, load_upstreams
@@ -146,6 +148,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             detection=detection,
             approvals=app.state.approvals,
         )
+        app.state.policies = PolicyService(
+            app.state.sessionmaker,
+            [app.state.engine],
+            bus,
+            app.state.redis,
+            settings.tripwire_mode,
+        )
+        await app.state.policies.start(app.state.engine.policy)
         app.state.guard = ManifestGuard(
             SqlPinStore(app.state.sessionmaker), app.state.approvals, detection
         )
@@ -190,6 +200,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             async with manager.run():
                 yield
         finally:
+            await app.state.policies.stop()
             await app.state.playground.aclose()
             await pool.aclose()
             await app.state.engine.drain_shadow()
@@ -215,6 +226,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(playground.router)
     app.include_router(auth.router)
     app.include_router(console.router)
+    app.include_router(policies.router)
 
     class McpEndpoint:
         """ASGI endpoint (a class, so Starlette passes every method through).

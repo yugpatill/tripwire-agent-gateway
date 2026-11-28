@@ -10,22 +10,31 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** The gateway's `detail`, as sent (a string, or an object such as policy errors). */
+    public detail?: unknown,
   ) {
     super(message);
   }
 }
 
-/** Return `data` or throw an ApiError carrying the gateway's `detail` message. */
+function describe(detail: unknown): string {
+  if (typeof detail === "string") return detail;
+  if (detail && typeof detail === "object" && "message" in detail) {
+    return String((detail as { message: unknown }).message);
+  }
+  return detail === undefined ? "" : JSON.stringify(detail);
+}
+
+/** Return `data` or throw an ApiError carrying the gateway's `detail`. */
 export async function unwrap<T>(
   request: Promise<{ data?: T; error?: unknown; response: Response }>,
 ): Promise<T> {
   const { data, error, response } = await request;
   if (error !== undefined || data === undefined) {
     const detail =
-      error && typeof error === "object" && "detail" in error
-        ? String((error as { detail: unknown }).detail)
-        : response.statusText;
-    throw new ApiError(response.status, detail || `Request failed (${response.status})`);
+      error && typeof error === "object" && "detail" in error ? (error as { detail: unknown }).detail : undefined;
+    const message = describe(detail) || response.statusText;
+    throw new ApiError(response.status, message || `Request failed (${response.status})`, detail);
   }
   return data;
 }

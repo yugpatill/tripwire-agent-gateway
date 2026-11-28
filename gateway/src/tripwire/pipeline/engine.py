@@ -267,7 +267,15 @@ class Engine:
                 session_id=call.session_id,
                 kind="call",
                 tool=call.tool,
-                payload={"args": call.args},
+                # `facts`: the session state the rules saw, so policies can be
+                # replayed against recorded traffic (POST /v1/policies/test).
+                payload={
+                    "args": call.args,
+                    "facts": {
+                        "context_confidentiality": session.max_confidentiality,
+                        "session_suspicious": session.suspicious,
+                    },
+                },
                 action=computed,
                 enforced_action=enforced,
                 rule_id=ev.rule_id,
