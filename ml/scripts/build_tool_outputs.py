@@ -639,7 +639,7 @@ def main() -> None:
     with a.out.open("w", encoding="utf-8") as f:
         for split, rs in rows.items():
             for row in rs:
-                f.write(json.dumps({**row, "split": split}) + "\n")
+                f.write(json.dumps({**row, "split": split}, ensure_ascii=True) + "\n")
     print({s: dict(Counter(f"{x['source']}:{x['label']}" for x in rs)) for s, rs in rows.items()})
     print("templates per split:", Counter(stratified(template_groups(), 42).values()))
 

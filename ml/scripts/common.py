@@ -36,8 +36,20 @@ MODELS: dict[str, ModelSpec] = {
 }
 
 
+def jsonl_lines(text: str) -> list[str]:
+    """JSONL records: split on "\n" only. str.splitlines() also breaks on U+2028,
+    U+2029, \x85 and \x1c-\x1e, which can sit unescaped inside a JSON string."""
+    return [line for line in text.split("\n") if line.strip()]
+
+
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line]
+    return [json.loads(line) for line in jsonl_lines(path.read_text(encoding="utf-8"))]
+
+
+def dump_jsonl_line(record: dict[str, Any]) -> str:
+    """One JSONL line. ensure_ascii escapes every non-ASCII character (U+2028 and
+    friends included), so any line splitter reads the file back correctly."""
+    return json.dumps(record, ensure_ascii=True) + "\n"
 
 
 def artifact_dir(key: str) -> Path:

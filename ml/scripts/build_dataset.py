@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Any
 
 from build_tool_outputs import tool_output_rows
+from common import dump_jsonl_line, jsonl_lines
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
@@ -527,7 +528,7 @@ def main() -> None:
     for split, rows in data.items():
         with (a.out / f"{split}.jsonl").open("w", encoding="utf-8") as f:
             for e in rows:
-                f.write(json.dumps(asdict(e), ensure_ascii=False) + "\n")
+                f.write(dump_jsonl_line(asdict(e)))
         stats[split] = dict(Counter(e.family for e in rows))
         stats[split]["_total"] = len(rows)
         stats[split]["_injection"] = sum(e.label for e in rows)
@@ -615,10 +616,9 @@ def _strings(v: object) -> list[str]:
 def fixture_ngrams() -> set[tuple[str, ...]]:
     grams: set[tuple[str, ...]] = set()
     for f in sorted(FIXTURES.rglob("*.jsonl")):
-        for line in f.read_text(encoding="utf-8").splitlines():
-            if line.strip():
-                row = json.loads(line)
-                grams |= _ngrams(row.get("text") or "\n".join(_strings(row.get("content"))))
+        for line in jsonl_lines(f.read_text(encoding="utf-8")):
+            row = json.loads(line)
+            grams |= _ngrams(row.get("text") or "\n".join(_strings(row.get("content"))))
     return grams
 
 
