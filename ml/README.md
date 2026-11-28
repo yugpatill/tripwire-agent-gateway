@@ -30,8 +30,8 @@ Colab and Kaggle preinstall diffusers and gradio, which need `huggingface_hub>=1
 
 ## Open items
 
-- [ ] **Retrain with realistic tool outputs** before the Phase 9 final evaluation ([plan](#retrain-plan-open-item-run-before-the-phase-9-final-evaluation)).
-- [ ] **Fix DeBERTa-v3-small's int8 export**, then decide whether to publish it as the opt-in accurate mode. Experimental until then.
+- [ ] **Retrain with realistic tool outputs** before the Phase 9 final evaluation ([plan](#retrain-plan-open-item-run-before-the-phase-9-final-evaluation)). Code and notebook ready (2026-11-28, [what changed](#phase-9-retrain-what-changed)); waiting for the Colab run.
+- [ ] **Fix DeBERTa-v3-small's int8 export**, then decide whether to publish it as the opt-in accurate mode. Exporter fixed (verified quantization settings); experimental until the retrained artifact passes.
 - [ ] **Prompt Guard 2 22M zero-shot baseline**: needs Hugging Face access approval for the account running the notebook (`HF_TOKEN`).
 
 ## Results (Phase 4, 2026-11-26)
@@ -117,3 +117,15 @@ Deferred at the Phase 4 review. Status: **open**. The gateway now uses the corro
 4. **Threshold and gates**: threshold re-chosen at 1% FPR on the new val (prose plus tool outputs). Accept the new model only if the Phase 3 corpus is scored once at the end with classifier-only FPR ≤ 2% and test_ood recall ≥ 98%. The Phase 3 corpus stays out of training and threshold selection.
 5. **DeBERTa int8 fix** (see Known problems 2). Until then DeBERTa-v3-small stays experimental and unpublished.
 6. Expected time on a T4: about 1 hour for both models.
+
+### Phase 9 retrain: what changed
+
+Implemented 2026-11-28; numbers below are from building the dataset locally (seed 42), before any training.
+
+- **`scripts/build_tool_outputs.py`**: 36 carrier templates (10 HTML, 14 API, 12 docs), 170 benign rows each, and an injected copy of about a quarter of them. Templates are the split groups (24 train, 6 val, 6 test), so val and test measure formats the model never saw. HTML text comes from SQuAD v2 *validation* articles (the base carriers use train); doc and API free text from Dolly rows of the same split. Every hiding place an injected copy uses (HTML comments, hidden elements, extra posts, JSON fields, log lines, plain-text file contents) also appears with harmless text in benign rows, so the structure is not a cue. Injected rows are kept only if the whole text fits one 512-token window for both tokenizers (55 dropped), so a payload is never truncated away from its label.
+- **Human-written attacks**: Lakera/gandalf_ignore_instructions (MIT) and jackhhao/jailbreak-classification (Apache-2.0, its benign role-play prompts as hard negatives), on their own splits; half are embedded in a carrier. In train, deepset is repeated 3x and the others 2x. hackaprompt (gated) and safe-guard-prompt-injection (no license) were left out.
+- **Leakage check**: any row sharing a word 8-gram with `gateway/tests/fixtures/` is dropped. It removed 773 rows, 720 of them Phase 4 generated hard negatives: five templates (for example "Please ignore my previous email; I attached the wrong file") were near-copies of Phase 3 hard negatives, so the Phase 4 model had trained on text close to part of its out-of-distribution check. It also caught two of my first new templates (a standard tag-manager URL and a security tip), which were reworded.
+- **Splits**: train 32,784 rows (8,844 injections), val 5,386 (1,659), test 5,679 (1,761), test_ood 5,286 (1,368). The threshold is still the lowest score with FPR <= 1% on val benign, which now includes the held-out tool formats.
+- **DeBERTa int8**: `export_onnx.py` tries five dynamic-quantization settings (default, per-channel, per-channel without attention MatMuls, MatMul-only, MatMul-only without attention) on 256 val texts scored one at a time, keeps the first within 0.05 of PyTorch, and records the setting and `int8_ok` in `config.json`. The MatMul-only settings keep DeBERTa's embedding table in fp32 (about 470 MB instead of 172 MB), so they come last.
+- **Gate**: `scripts/gate.py` checks Phase 3 corpus classifier-only FPR <= 2%, test_ood recall >= 98% and `int8_ok`, and prints the numbers the top-level README quotes from the Phase 4 model. On the Phase 4 metrics it fails both models (6.8% and 11.6% corpus FPR; DeBERTa int8 0.98).
+- The notebook keeps the Phase 4 MiniLM base (`sentence-transformers/all-MiniLM-L6-v2`) instead of re-running the selection.

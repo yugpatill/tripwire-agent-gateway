@@ -3,9 +3,22 @@
     uv run python scripts/export_onnx.py --model minilm-l6
 
 Writes artifacts/injection-<key>/: model.int8.onnx, tokenizer.json, config.json
-(threshold filled in later by evaluate.py). Exports with Optimum, applies dynamic
-int8 quantization (QInt8 weights), and verifies fp32 ONNX vs PyTorch probabilities
-agree within 1e-2; the int8 deviation is recorded too.
+(threshold filled in later by evaluate.py). Exports with Optimum, verifies fp32 ONNX
+vs PyTorch probabilities agree within 1e-2, then applies dynamic int8 quantization.
+
+Quantization (Phase 9): DeBERTa-v3-small lost accuracy under default dynamic int8
+(max probability difference 0.98 vs PyTorch; MiniLM 0.006). The settings below are
+tried in order on 256 validation texts and the first whose int8 probabilities stay
+within INT8_MAX_DIFF of PyTorch is kept:
+
+1. default: every supported op (the Phase 4 setting);
+2. per-channel: every supported op, per-channel weight scales;
+3. no-attention: per-channel, attention MatMuls left in fp32;
+4. matmul: MatMul only, per-channel (embedding lookups stay fp32, so a larger file);
+5. matmul-ffn: MatMul only, per-channel, attention MatMuls left in fp32.
+
+If none passes, the closest one is kept and config.json records int8_ok: false;
+check_artifacts.py and the release gate refuse such an artifact for publishing.
 """
 
 from __future__ import annotations
@@ -25,6 +38,22 @@ from optimum.onnxruntime import ORTModelForSequenceClassification
 from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
 POSITIVE = ("injection", "malicious", "label_1", "jailbreak")
+INT8_MAX_DIFF = 0.05
+VERIFY_TEXTS = 256
+
+
+def quantize_variants(fp32: Path) -> list[tuple[str, dict[str, object]]]:
+    import onnx
+
+    attention = [n.name for n in onnx.load(str(fp32), load_external_data=False).graph.node if n.op_type == "MatMul" and "attention" in n.name.lower()]
+    return [
+        ("default", {}),
+        ("per-channel", {"per_channel": True}),
+        ("no-attention", {"per_channel": True, "nodes_to_exclude": attention}),
+        # Embedding lookups stay fp32 from here on: DeBERTa-v3's 128k-token table makes the file ~470 MB.
+        ("matmul", {"op_types_to_quantize": ["MatMul"], "per_channel": True}),
+        ("matmul-ffn", {"op_types_to_quantize": ["MatMul"], "per_channel": True, "nodes_to_exclude": attention}),
+    ]
 
 
 def positive_index(id2label: dict[int, str]) -> int:
@@ -57,21 +86,32 @@ def main() -> None:
         ort_model = ORTModelForSequenceClassification.from_pretrained(src, export=True)
         ort_model.save_pretrained(tmp)
         fp32 = Path(tmp) / "model.onnx"
-        quantize_dynamic(str(fp32), str(out / "model.int8.onnx"), weight_type=QuantType.QInt8)
-
         # Verification on real validation texts.
-        texts = [r["text"] for r in load_jsonl(DATA / "val.jsonl")[:64]]
-        enc = tok(texts, truncation=True, max_length=spec.max_length, padding=True, return_tensors="np")
+        texts = [r["text"] for r in load_jsonl(DATA / "val.jsonl")[:VERIFY_TEXTS]]
+        # One text at a time, like the gateway (no padding; dynamic int8 scales per input).
+        encs = [tok(t, truncation=True, max_length=spec.max_length, return_tensors="np") for t in texts]
         torch_model = AutoModelForSequenceClassification.from_pretrained(src).eval()
         with torch.inference_mode():
-            pt = softmax(torch_model(**{k: torch.tensor(v) for k, v in enc.items()}).logits.numpy())
+            pt = np.concatenate([softmax(torch_model(**{k: torch.tensor(v) for k, v in e.items()}).logits.numpy()) for e in encs])
         def run(path: Path) -> np.ndarray:
             sess = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
             names = {i.name for i in sess.get_inputs()}
-            feed = {k: v.astype(np.int64) for k, v in enc.items() if k in names}
-            return softmax(sess.run(None, feed)[0])
+            return np.concatenate([softmax(sess.run(None, {k: v.astype(np.int64) for k, v in e.items() if k in names})[0]) for e in encs])
         d32 = float(np.abs(run(fp32) - pt).max())
-        d8 = float(np.abs(run(out / "model.int8.onnx") - pt).max())
+        tried: dict[str, float] = {}
+        best: tuple[float, str] | None = None
+        for name, kw in quantize_variants(fp32):
+            cand = Path(tmp) / f"model.{name}.int8.onnx"
+            quantize_dynamic(str(fp32), str(cand), weight_type=QuantType.QInt8, **kw)  # type: ignore[arg-type]
+            tried[name] = round(float(np.abs(run(cand) - pt).max()), 6)
+            print(f"  int8 {name}: max |p_int8 - p_torch| = {tried[name]:.4f}", flush=True)
+            if best is None or tried[name] < best[0]:
+                best = (tried[name], name)
+                shutil.copyfile(cand, out / "model.int8.onnx")
+            if tried[name] < INT8_MAX_DIFF:
+                break
+        assert best is not None
+        d8, strategy = best
         id2label = {int(k): v for k, v in torch_model.config.id2label.items()}
 
     if d32 > 1e-2:
@@ -91,12 +131,22 @@ def main() -> None:
             "base_model": base_model,
             "model_key": spec.key,
             "source_labels": {str(k): v for k, v in id2label.items()},
-            "verification": {"max_abs_diff_fp32_vs_torch": round(d32, 6), "max_abs_diff_int8_vs_torch": round(d8, 6)},
+            "verification": {
+                "texts": len(texts),
+                "max_abs_diff_fp32_vs_torch": round(d32, 6),
+                "max_abs_diff_int8_vs_torch": round(d8, 6),
+                "int8_strategy": strategy,
+                "int8_tried": tried,
+                "int8_max_allowed": INT8_MAX_DIFF,
+            },
+            "int8_ok": d8 < INT8_MAX_DIFF,
         }
     )
     cfg_path.write_text(json.dumps(cfg, indent=2))
     size = (out / "model.int8.onnx").stat().st_size / 1e6
-    print(f"wrote {out} | int8 {size:.0f} MB | fp32 vs torch {d32:.2e} | int8 vs torch {d8:.2e} | labels {labels}")
+    print(f"wrote {out} | int8 {size:.0f} MB ({strategy}) | fp32 vs torch {d32:.2e} | int8 vs torch {d8:.2e} | labels {labels}")
+    if d8 >= INT8_MAX_DIFF:
+        print(f"WARNING: no int8 setting kept {spec.key} within {INT8_MAX_DIFF} of PyTorch; config.json has int8_ok: false")
     shutil.rmtree(Path(tempfile.gettempdir()) / "onnx", ignore_errors=True)
 
 

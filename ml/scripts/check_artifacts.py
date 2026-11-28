@@ -69,6 +69,7 @@ def check(d: Path) -> tuple[list[str], dict[str, Any]]:
         test_p=t.get("precision"), test_r=t.get("recall"), test_f1=t.get("f1"), test_auc=t.get("roc_auc"),
         ood_r=o.get("recall"), ood_auc=o.get("roc_auc"), hardneg_fpr=t.get("fpr_hard_negatives"),
         gw_fpr=g.get("fpr"), gw_r=g.get("recall"),
+        int8=cfg.get("verification", {}).get("int8_strategy", "default") + ("" if cfg.get("int8_ok", True) else " (NOT OK)"),
     )
     return errors, row
 
@@ -112,9 +113,9 @@ def main() -> None:
                 for f in sorted(d.iterdir()):
                     if f.is_file() and f.name not in skip:
                         z.write(f, f"{d.name}/{f.name}")
-            sel = a.artifacts / "minilm_selection.json"
-            if sel.exists():
-                z.write(sel, sel.name)
+            for extra in (a.artifacts / "minilm_selection.json", a.artifacts / "gate.json", a.artifacts.parent / "data" / "stats.json"):
+                if extra.exists():
+                    z.write(extra, extra.name)
         print(f"wrote {a.zip} ({a.zip.stat().st_size / 1e6:.0f} MB)")
         for name, skip in NOT_REDISTRIBUTED.items():
             if (a.artifacts / name).is_dir():

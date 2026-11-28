@@ -7,9 +7,21 @@ Sources (all permit this use; see ml/README.md):
   * databricks/databricks-dolly-15k (CC BY-SA 3.0): benign contexts/responses as tool
     output carriers, and benign instructions as hard negatives.
   * rajpurkar/squad_v2 (CC BY-SA 4.0): Wikipedia paragraphs as web-page carriers.
+  * Lakera/gandalf_ignore_instructions (MIT): human-written "ignore your instructions"
+    attempts from the Gandalf game.
+  * jackhhao/jailbreak-classification (Apache-2.0): human-written jailbreaks, and
+    benign role-play prompts as hard negatives.
   * Generated here: attack payloads in seven families, embedded in carriers;
     synthetic emails, API JSON, tickets and docs; hard negatives that say
     "ignore", "instructions", "system", "assistant" without attacking.
+  * build_tool_outputs.py (Phase 9): realistic tool outputs (HTML pages, flattened
+    API JSON, docs and notices), a quarter of them with an injection planted in
+    the same format.
+
+Leakage: any row that shares a word 8-gram with the gateway's Phase 3 corpus
+(gateway/tests/fixtures/, the out-of-distribution check in evaluate.py) is dropped,
+and the count per source is written to stats.json. Human-written attacks are
+up-weighted in train (deepset x3, the others x2), never in val or test.
 
 Splits are by *group* (payload template, carrier source, hard-negative template),
 never by row, so test measures unseen phrasings. One attack family, role_markers,
@@ -32,13 +44,21 @@ from collections import Counter
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Any
 
+from build_tool_outputs import tool_output_rows
 from datasets import load_dataset
+from transformers import AutoTokenizer
 
 ROOT = Path(__file__).resolve().parents[1]
 OOD_FAMILY = "role_markers"
 SPLIT_RATIOS = (("train", 0.8), ("val", 0.1), ("test", 0.1))
 MAX_CHARS = 1800  # keeps nearly every example inside one 512-token window
+FIXTURES = ROOT.parent / "gateway" / "tests" / "fixtures"
+NGRAM = 8
+PAYLOAD_TOKEN_LIMIT = 500  # an injected row is kept only if its payload ends before this token
+TOKENIZERS = ("sentence-transformers/all-MiniLM-L6-v2", "microsoft/deberta-v3-small")
+TRAIN_UPWEIGHT = {"deepset": 3, "gandalf": 2, "jailbreak_human": 2}
 
 
 @dataclass
@@ -445,6 +465,45 @@ def generate(seed: int) -> dict[str, list[Example]]:
                     text = embed(r, payload, carrier)
                 out[split].append(Example(clip(text) if len(text) > MAX_CHARS + 400 else text, 1, fam, "generated", g))
 
+    # Human-written attacks (Phase 9): their own splits; half embedded in a carrier.
+    human = human_attacks(seed)
+    for split, rows in human.items():
+        for e in rows:
+            if e.label == 1 and r.random() < 0.5:
+                pool = carriers[split]
+                e = Example(embed(r, e.text, pool[r.randrange(len(pool))][0]), 1, e.family, e.source, e.group)
+            out[split].append(e)
+
+    # Realistic tool outputs (Phase 9), with injections from attack templates of the same split.
+    by_split: dict[str, list[tuple[str, Callable[[random.Random], str]]]] = {"train": [], "val": [], "test": []}
+    for fam, make in FAMILIES.items():
+        if fam == OOD_FAMILY:
+            continue
+        templates = make()
+        fam_split = stratified_splits([f"{fam}:{ti}" for ti in range(len(templates))], seed)
+        for ti, tpl in enumerate(templates):
+            by_split[fam_split[f"{fam}:{ti}"]].append((fam, tpl))
+    human_payloads = {s: [e for e in rows if e.label == 1] for s, rows in human_attacks(seed).items()}
+
+    def payload_for(rng: random.Random, split: str) -> tuple[str, str]:
+        if rng.random() < 0.3 and human_payloads[split]:
+            e = human_payloads[split][rng.randrange(len(human_payloads[split]))]
+            return e.text, e.family
+        fam, tpl = by_split[split][rng.randrange(len(by_split[split]))]
+        return tpl(rng), fam
+
+    tools = tool_output_rows(seed, squad_validation_by_split(seed), dolly_by_split(seed), payload_for)
+    toks = [AutoTokenizer.from_pretrained(t, use_fast=True) for t in TOKENIZERS]
+    late = 0
+    for split, rows in tools.items():
+        for row in rows:
+            if row["label"] == 1 and not payload_in_window(row["text"], toks):
+                late += 1
+                continue
+            text = row["text"] if row["label"] == 1 else clip(row["text"])
+            out[split].append(Example(text, row["label"], row["family"], row["source"], row["group"]))
+    print(f"tool outputs: dropped {late} injected rows whose payload starts too late for one window")
+
     # test_ood = OOD attacks + the benign part of test (so precision/FPR are defined).
     out["test_ood"] += [e for e in out["test"] if e.label == 0]
     for split in out:
@@ -459,6 +518,11 @@ def main() -> None:
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     data = generate(a.seed)
+    data, dropped = drop_fixture_overlap(data)
+    for fam, k in TRAIN_UPWEIGHT.items():
+        extra = [e for e in data["train"] if e.label == 1 and e.family == fam]
+        data["train"] += extra * (k - 1)
+    random.Random(a.seed).shuffle(data["train"])
     stats: dict[str, dict[str, int]] = {}
     for split, rows in data.items():
         with (a.out / f"{split}.jsonl").open("w", encoding="utf-8") as f:
@@ -476,8 +540,102 @@ def main() -> None:
             prev = owner.setdefault(e.group, split)
             if prev != split:
                 raise AssertionError(f"group {e.group} in {prev} and {split}")
+    stats["_leakage_dropped_by_source"] = dropped  # type: ignore[assignment]
     (a.out / "stats.json").write_text(json.dumps(stats, indent=2))
     print(json.dumps(stats, indent=2))
+
+
+# ------------------------------------------------------------------ Phase 9 additions
+
+
+def human_attacks(seed: int) -> dict[str, list[Example]]:
+    """Gandalf (MIT) and jackhhao jailbreaks (Apache-2.0), on their own splits."""
+    out: dict[str, list[Example]] = {"train": [], "val": [], "test": []}
+    g = load_dataset("Lakera/gandalf_ignore_instructions")
+    for hf_split, split in (("train", "train"), ("validation", "val"), ("test", "test")):
+        for i, row in enumerate(g[hf_split]):
+            out[split].append(Example(row["text"].strip(), 1, "gandalf", "gandalf", f"gandalf:{hf_split}:{i}"))
+    j = load_dataset("jackhhao/jailbreak-classification")
+    for hf_split in ("train", "test"):
+        for i, row in enumerate(j[hf_split]):
+            grp = f"jackhhao:{hf_split}:{i}"
+            split = "test" if hf_split == "test" else ("val" if split_of(grp, seed) == "val" else "train")
+            text = row["prompt"].strip()
+            if row["type"] == "jailbreak":
+                out[split].append(Example(clip(text), 1, "jailbreak_human", "jackhhao", grp))
+            else:
+                out[split].append(Example(clip(text), 0, "hard_negative", "jackhhao", grp))
+    return out
+
+
+def squad_validation_by_split(seed: int) -> dict[str, list[tuple[str, str]]]:
+    """SQuAD v2 validation articles (the base carriers use train), whole articles per split."""
+    out: dict[str, list[tuple[str, str]]] = {"train": [], "val": [], "test": []}
+    seen: set[str] = set()
+    for row in load_dataset("rajpurkar/squad_v2", split="validation"):
+        ctx = row["context"]
+        if ctx in seen or len(ctx) > 900:
+            continue
+        seen.add(ctx)
+        out[split_of(f"squadval:{row['title']}", seed)].append((row["title"], ctx))
+    return out
+
+
+def dolly_by_split(seed: int) -> dict[str, list[tuple[str, str]]]:
+    """(instruction, text) with the same split assignment as the base Dolly carriers."""
+    out: dict[str, list[tuple[str, str]]] = {"train": [], "val": [], "test": []}
+    for i, row in enumerate(load_dataset("databricks/databricks-dolly-15k", split="train")):
+        body = (row["context"] or row["response"]).strip()
+        if 80 <= len(body) <= 700:
+            out[split_of(f"dolly:{i}", seed)].append((row["instruction"].strip(), body))
+    return out
+
+
+def payload_in_window(text: str, toks: list[Any]) -> bool:
+    """True if the whole text fits the training window of every tokenizer, so the
+    injected payload is never truncated away from its label."""
+    return all(len(t(text, add_special_tokens=True)["input_ids"]) <= PAYLOAD_TOKEN_LIMIT for t in toks)
+
+
+def _ngrams(text: str) -> set[tuple[str, ...]]:
+    words = re.findall(r"\w+", text.lower())
+    return {tuple(words[i : i + NGRAM]) for i in range(len(words) - NGRAM + 1)}
+
+
+def _strings(v: object) -> list[str]:
+    if isinstance(v, str):
+        return [v]
+    if isinstance(v, dict):
+        return [s for x in v.values() for s in _strings(x)]
+    if isinstance(v, list):
+        return [s for x in v for s in _strings(x)]
+    return [] if v is None or isinstance(v, bool) else [str(v)]
+
+
+def fixture_ngrams() -> set[tuple[str, ...]]:
+    grams: set[tuple[str, ...]] = set()
+    for f in sorted(FIXTURES.rglob("*.jsonl")):
+        for line in f.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                grams |= _ngrams(row.get("text") or "\n".join(_strings(row.get("content"))))
+    return grams
+
+
+def drop_fixture_overlap(data: dict[str, list[Example]]) -> tuple[dict[str, list[Example]], dict[str, int]]:
+    """Drop every row sharing a word 8-gram with the Phase 3 corpus (all splits)."""
+    grams = fixture_ngrams()
+    dropped: Counter[str] = Counter()
+    kept: dict[str, list[Example]] = {}
+    for split, rows in data.items():
+        kept[split] = []
+        for e in rows:
+            if _ngrams(e.text) & grams:
+                dropped[f"{e.source}/{e.family}"] += 1
+            else:
+                kept[split].append(e)
+    print("leakage check: dropped", sum(dropped.values()), "rows sharing an 8-gram with gateway/tests/fixtures:", dict(dropped))
+    return kept, dict(dropped)
 
 
 def iter_jsonl(path: Path) -> Iterator[dict[str, object]]:
